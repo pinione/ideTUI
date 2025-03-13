@@ -289,11 +289,11 @@ def display_text(stdscr, title, text):
             current_line -= 1
         elif key == curses.KEY_DOWN and current_line < len(lines) - display_height:
             current_line += 1
-        elif key == curses.KEY_NPAGE:  # Page Down
+        elif key == curses.KEY_NPAGE:
             current_line = min(current_line + display_height, max(0, len(lines) - display_height))
-        elif key == curses.KEY_PPAGE:  # Page Up
+        elif key == curses.KEY_PPAGE:
             current_line = max(current_line - display_height, 0)
-        elif key == curses.KEY_END:  # Jump to end
+        elif key == curses.KEY_END:
             current_line = max(0, len(lines) - display_height)
         elif key == ord('/'):
             stdscr.addstr(max_rows - 1, 0, "Enter search query: ", curses.A_BOLD)
@@ -351,6 +351,19 @@ def parse_application_conf(conf_path):
         cassandra = {}
     return reporting, cassandra
 
+def list_vwan_vpn(stdscr):
+    """
+    Runs an az CLI command to list S2S VPN connections in the specified vWAN.
+    For this example, the resource group is hardcoded as "vwan-connectivity-shared-francecentral-001".
+    """
+    az_cmd = "az network vpn-connection list --resource-group vwan-connectivity-shared-francecentral-001 --output table"
+    try:
+        result = subprocess.run(az_cmd, shell=True, check=True, text=True, stdout=subprocess.PIPE)
+        output = result.stdout.strip()
+    except subprocess.CalledProcessError as e:
+        output = f"Error executing az command: {e}"
+    display_text(stdscr, "vWAN - VPN (S2S Connections)", f"Command: {az_cmd}\n\nOutput:\n{output}")
+
 def main(stdscr):
     # Initialize color pairs for highlighting in logs display
     curses.start_color()
@@ -359,18 +372,24 @@ def main(stdscr):
     curses.init_pair(3, curses.COLOR_GREEN, curses.COLOR_BLACK)    # success: green
 
     environments = load_config()
-    if not environments:
+    # Add extra top-level menu option "vWAN - VPN"
+    env_names = list(environments.keys())
+    env_names.append("vWAN - VPN")
+    if not env_names:
         stdscr.addstr(2, 2, "No environments found in config!", curses.A_BOLD)
         stdscr.refresh()
         stdscr.getch()
         return
 
-    # Step 1: Environment Selection
+    # Step 1: Environment Selection (or vWAN - VPN)
     while True:
-        env_names = list(environments.keys())
         selected_env_name = select_option(stdscr, "Select Environment", env_names, lambda e: e, include_exit=True)
         if selected_env_name == "Exit":
             return
+
+        if selected_env_name == "vWAN - VPN":
+            list_vwan_vpn(stdscr)
+            continue
 
         # Step 2: Environment Type Selection
         while True:
@@ -543,6 +562,7 @@ def main(stdscr):
                                             else:
                                                 val = kv.group(2).strip('"')
                                                 cassandra[key] = val
+                            source = "application.conf"
                         if not source:
                             output = f"Neither application.conf nor smdp.yaml found under secrets for namespace '{selected_namespace}'."
                         else:
