@@ -87,7 +87,8 @@ def select_option(stdscr, title, options, get_label, include_back=False, include
 
 def clone_or_pull_repo(env_name, env_type, git_repo):
     """
-    Clones or pulls the repo. Output is suppressed.
+    Clones or pulls the repository.
+    Output is suppressed.
     """
     env_dir = os.path.join(BASE_DIR, f"{env_name}_{env_type}")
     os.makedirs(BASE_DIR, exist_ok=True)
@@ -108,7 +109,7 @@ def clone_or_pull_repo(env_name, env_type, git_repo):
 
 def find_kubernetes_namespaces(repo_dir):
     """
-    Scans the repo for YAML files defining a Kubernetes Namespace.
+    Scans the repository for YAML files defining a Kubernetes Namespace.
     Returns a sorted list of real namespace names.
     """
     namespaces = set()
@@ -140,15 +141,15 @@ def connect_and_run_kubectl(jumphost, namespace, command):
 
 def run_kubectl_get_pods(jumphost, namespace):
     """
-    SSH to the jumphost and run 'kubectl -n <namespace> get pods --no-headers',
-    capturing the output.
+    SSH to the jumphost and run 'kubectl -n <namespace> get pods --no-headers'
+    capturing its output. Returns a tuple (command_executed, output).
     """
     ssh_command = f"ssh {jumphost} 'kubectl -n {namespace} get pods --no-headers'"
     try:
         result = subprocess.run(ssh_command, shell=True, check=True, text=True, stdout=subprocess.PIPE)
-        return result.stdout.strip()
+        return ssh_command, result.stdout.strip()
     except subprocess.CalledProcessError:
-        return ""
+        return ssh_command, ""
 
 def display_text(stdscr, title, text):
     """
@@ -196,7 +197,7 @@ def main(stdscr):
                 stdscr,
                 "Select Environment Type",
                 env_options,
-                lambda e: f"{e[0]} ({e[1]})" if e[1] else e[0],
+                lambda e: f"{e[0]} ({e[1]})",
                 include_back=True
             )
             if selected_env_type_tuple == "Go Back":
@@ -269,14 +270,14 @@ def main(stdscr):
                                 continue
 
                             if kubernetes_option == "Show Pods":
-                                # Run and capture 'kubectl get pods' output
-                                output = run_kubectl_get_pods(jumphost, selected_namespace)
+                                # Run 'kubectl get pods' and capture output
+                                cmd_executed, output = run_kubectl_get_pods(jumphost, selected_namespace)
                                 if not output:
                                     output = "No pods found or error executing command."
-                                display_text(stdscr, "Kubectl Get Pods Output", output)
+                                display_text(stdscr, "Kubectl Get Pods Output", f"Command: {cmd_executed}\n\nOutput:\n{output}")
                             elif kubernetes_option == "Show Logs":
-                                # First, get the list of pods
-                                pods_output = run_kubectl_get_pods(jumphost, selected_namespace)
+                                # Get list of pods first
+                                cmd_executed, pods_output = run_kubectl_get_pods(jumphost, selected_namespace)
                                 pods = []
                                 for line in pods_output.splitlines():
                                     parts = line.split()
@@ -284,11 +285,12 @@ def main(stdscr):
                                         pods.append(parts[0])
                                 if not pods:
                                     stdscr.clear()
-                                    stdscr.addstr(2, 2, "No pods found.", curses.A_BOLD)
+                                    stdscr.addstr(2, 2, f"Command executed: {cmd_executed}", curses.A_BOLD)
+                                    stdscr.addstr(3, 2, "No pods found.", curses.A_BOLD)
                                     stdscr.refresh()
                                     stdscr.getch()
                                     continue
-                                # New menu: select a pod to view logs
+                                # New menu: select a pod for logs
                                 selected_pod = select_option(
                                     stdscr,
                                     "Select a Pod for Logs",
@@ -299,23 +301,22 @@ def main(stdscr):
                                 )
                                 if selected_pod == "Go Back":
                                     continue
-                                # Run logs command for the selected pod and capture output
                                 ssh_cmd = f"ssh {jumphost} 'kubectl -n {selected_namespace} logs {selected_pod}'"
                                 try:
                                     result = subprocess.run(ssh_cmd, shell=True, check=True, text=True, stdout=subprocess.PIPE)
                                     logs_output = result.stdout.strip()
                                 except subprocess.CalledProcessError as e:
                                     logs_output = f"Error retrieving logs: {e}"
-                                display_text(stdscr, f"Logs for Pod: {selected_pod}", logs_output)
+                                display_text(stdscr, f"Logs for Pod: {selected_pod}", f"Command: {ssh_cmd}\n\nLogs:\n{logs_output}")
                     else:
-                        # Placeholder for MariaDB and Cassandra actions
+                        # For MariaDB and Cassandra, show a placeholder message
                         stdscr.clear()
                         stdscr.addstr(2, 2, f"You selected: {selected_option}", curses.A_BOLD)
                         stdscr.addstr(4, 2, "Feature not implemented yet.", curses.A_DIM)
                         stdscr.refresh()
                         stdscr.getch()
-                # End of Action Selection loop: return to namespace selection.
-            # End of Namespace Selection loop: break to environment type selection.
+                # End of Action Selection loop: return to Namespace selection.
+            # End of Namespace Selection loop: break to Environment Type selection.
             return  # Exit after finishing one environment type selection
 
 if __name__ == "__main__":
