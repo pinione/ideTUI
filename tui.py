@@ -3,10 +3,22 @@ import configparser
 import os
 import subprocess
 import yaml  # Requires PyYAML installed
+import urllib.parse
 from collections import defaultdict
 
 CONFIG_FILE = "config.ini"
 BASE_DIR = os.path.expanduser("~/env_repos")  # Base directory for repositories
+
+def strip_credentials(url):
+    """
+    Strips username and password from the given URL.
+    Returns the URL with only the scheme, hostname, port (if any), path, query, and fragment.
+    """
+    parts = urllib.parse.urlsplit(url)
+    netloc = parts.hostname or ""
+    if parts.port:
+        netloc += f":{parts.port}"
+    return urllib.parse.urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 def load_config():
     """
@@ -216,7 +228,7 @@ def main(stdscr):
                 stdscr,
                 "Select Environment Type",
                 env_options,
-                lambda e: f"{e[0]} ({e[1]})",
+                lambda e: f"{e[0]} ({strip_credentials(e[1])})",
                 include_back=True
             )
             if selected_env_type_tuple == "Go Back":
@@ -238,7 +250,7 @@ def main(stdscr):
                 stdscr.getch()
                 break
 
-            # Step 4: Namespace Selection (No pause after selection)
+            # Step 4: Namespace Selection (proceed immediately)
             while True:
                 selected_namespace = select_option(
                     stdscr,
@@ -251,7 +263,7 @@ def main(stdscr):
                 if selected_namespace == "Go Back":
                     break
 
-                # Immediately proceed to the next menu without pausing
+                # Directly proceed to Action Selection Menu without pausing
                 # Step 5: Action Selection Menu
                 while True:
                     selected_option = select_option(
@@ -285,13 +297,11 @@ def main(stdscr):
                                 continue
 
                             if kubernetes_option == "Show Pods":
-                                # Run 'kubectl get pods' and capture output
                                 cmd_executed, output = run_kubectl_get_pods(jumphost, context, selected_namespace)
                                 if not output:
                                     output = "No pods found or error executing command."
                                 display_text(stdscr, "Kubectl Get Pods Output", f"Command: {cmd_executed}\n\nOutput:\n{output}")
                             elif kubernetes_option == "Show Logs":
-                                # Get list of pods first
                                 cmd_executed, pods_output = run_kubectl_get_pods(jumphost, context, selected_namespace)
                                 pods = []
                                 for line in pods_output.splitlines():
@@ -305,7 +315,6 @@ def main(stdscr):
                                     stdscr.refresh()
                                     stdscr.getch()
                                     continue
-                                # New menu: select a pod for logs
                                 selected_pod = select_option(
                                     stdscr,
                                     "Select a Pod for Logs",
@@ -324,7 +333,6 @@ def main(stdscr):
                                     logs_output = f"Error retrieving logs: {e}"
                                 display_text(stdscr, f"Logs for Pod: {selected_pod}", f"Command: {ssh_cmd}\n\nLogs:\n{logs_output}")
                     else:
-                        # Placeholder for MariaDB and Cassandra actions
                         stdscr.clear()
                         stdscr.addstr(2, 2, f"You selected: {selected_option}", curses.A_BOLD)
                         stdscr.addstr(4, 2, "Feature not implemented yet.", curses.A_DIM)
@@ -333,6 +341,16 @@ def main(stdscr):
                 # End of Action Selection loop: return to Namespace selection.
             # End of Namespace Selection loop: break to Environment Type selection.
             return  # Exit after finishing one environment type selection
+
+def strip_credentials(url):
+    """
+    Strips any username/password from the provided URL.
+    """
+    parts = urllib.parse.urlsplit(url)
+    netloc = parts.hostname or ""
+    if parts.port:
+        netloc += f":{parts.port}"
+    return urllib.parse.urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 if __name__ == "__main__":
     curses.wrapper(main)
