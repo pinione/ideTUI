@@ -145,17 +145,18 @@ def find_kubernetes_namespaces(repo_dir):
 
 def find_application_conf(repo_dir, namespace):
     """
-    Searches recursively under <repo_dir>/secrets/ for a file named 'application.conf'
-    in a directory whose name matches the given namespace.
+    Recursively searches under <repo_dir>/secrets/ for a file named "application.conf"
+    where the relative path (from secrets) contains the given namespace.
     Returns the full path if found, or None otherwise.
     """
     secrets_dir = os.path.join(repo_dir, "secrets")
     if not os.path.isdir(secrets_dir):
         return None
     for root, dirs, files in os.walk(secrets_dir):
-        # Check if the immediate directory name matches the namespace
-        if os.path.basename(root) == namespace and "application.conf" in files:
-            return os.path.join(root, "application.conf")
+        if "application.conf" in files:
+            rel_path = os.path.relpath(root, secrets_dir)
+            if namespace in rel_path.split(os.sep):
+                return os.path.join(root, "application.conf")
     return None
 
 def connect_and_run_kubectl(jumphost, context, namespace, command):
@@ -387,8 +388,7 @@ def main(stdscr):
                                     logs_output = f"Error retrieving logs: {e}"
                                 display_text(stdscr, f"Logs for Pod: {selected_pod}", f"Command: {ssh_cmd}\n\nLogs:\n{logs_output}")
                     elif selected_option == "MariaDB":
-                        # MariaDB Action: Search for application.conf in secrets folder for the selected namespace
-                        conf_path = None
+                        # MariaDB Action: Search for application.conf in secrets for the selected namespace
                         conf_path = find_application_conf(repo_dir, selected_namespace)
                         if not conf_path:
                             output = f"application.conf not found under secrets for namespace '{selected_namespace}'."
@@ -398,7 +398,6 @@ def main(stdscr):
                                     content = f.read()
                             except Exception as e:
                                 content = "Error reading application.conf: " + str(e)
-                            # Parse reporting and cassandra blocks
                             reporting = {}
                             cassandra = {}
                             rep_match = re.search(r"reporting\s*\{(.*?)\}", content, re.DOTALL)
