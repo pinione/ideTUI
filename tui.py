@@ -78,17 +78,20 @@ def clone_or_pull_repo(env_name, env_type, git_repo):
         os.makedirs(BASE_DIR)
 
     if os.path.exists(env_dir):
-        print(f"Directory {env_dir} exists. Performing git pull...")
+        print(f"\nDirectory {env_dir} exists. Performing git pull...\n")
         try:
-            subprocess.run(["git", "-C", env_dir, "pull"], check=True)
+            result = subprocess.run(["git", "-C", env_dir, "pull"], text=True)
         except subprocess.CalledProcessError as e:
-            print(f"Failed to pull repository: {e}")
+            print(f"\n⚠️ Failed to pull repository: {e}")
     else:
-        print(f"Cloning repository {git_repo} into {env_dir}...")
+        print(f"\nCloning repository {git_repo} into {env_dir}...\n")
         try:
-            subprocess.run(["git", "clone", git_repo, env_dir], check=True)
+            result = subprocess.run(["git", "clone", git_repo, env_dir], text=True)
         except subprocess.CalledProcessError as e:
-            print(f"Failed to clone repository: {e}")
+            print(f"\n⚠️ Failed to clone repository: {e}")
+
+    print("\n✅ Git operation completed. Press ENTER to continue...")
+    input()  # Pause and wait for user confirmation
 
     return env_dir
 
