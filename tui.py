@@ -80,21 +80,15 @@ def clone_or_pull_repo(env_name, env_type, git_repo):
     if os.path.exists(env_dir):
         print(f"\n📂 Directory {env_dir} exists. Performing git pull...\n")
         try:
-            subprocess.run(["git", "-C", env_dir, "pull"], text=True)
-        except subprocess.CalledProcessError as e:
-            print(f"\n⚠️ Failed to pull repository: {e}")
+            subprocess.run(["git", "-C", env_dir, "pull"], text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except subprocess.CalledProcessError:
+            pass  # Ignore errors and continue
     else:
         print(f"\n🚀 Cloning repository {git_repo} into {env_dir}...\n")
         try:
-            subprocess.run(["git", "clone", git_repo, env_dir], text=True)
-        except subprocess.CalledProcessError as e:
-            print(f"\n⚠️ Failed to clone repository: {e}")
-
-    # ✅ Cross-platform pause method
-    if os.name == "nt":  # Windows
-        os.system("pause")
-    else:  # Linux/macOS
-        os.system("read -p 'Press ENTER to continue...' key")
+            subprocess.run(["git", "clone", git_repo, env_dir], text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except subprocess.CalledProcessError:
+            pass  # Ignore errors and continue
 
     return env_dir
 
@@ -114,8 +108,8 @@ def find_kubernetes_namespaces(repo_dir):
                                 metadata = doc.get("metadata", {})
                                 if "name" in metadata:
                                     namespaces.add(metadata["name"])
-                except Exception as e:
-                    print(f"Error reading {file_path}: {e}")
+                except Exception:
+                    pass  # Ignore errors and continue
 
     return sorted(namespaces)
 
