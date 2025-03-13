@@ -289,11 +289,11 @@ def display_text(stdscr, title, text):
             current_line -= 1
         elif key == curses.KEY_DOWN and current_line < len(lines) - display_height:
             current_line += 1
-        elif key == curses.KEY_NPAGE:
+        elif key == curses.KEY_NPAGE:  # Page Down
             current_line = min(current_line + display_height, max(0, len(lines) - display_height))
-        elif key == curses.KEY_PPAGE:
+        elif key == curses.KEY_PPAGE:  # Page Up
             current_line = max(current_line - display_height, 0)
-        elif key == curses.KEY_END:
+        elif key == curses.KEY_END:  # Jump to end
             current_line = max(0, len(lines) - display_height)
         elif key == ord('/'):
             stdscr.addstr(max_rows - 1, 0, "Enter search query: ", curses.A_BOLD)
@@ -353,8 +353,8 @@ def parse_application_conf(conf_path):
 
 def list_vwan_vpn(stdscr):
     """
-    Runs an az CLI command to list S2S VPN connections in the specified vWAN.
-    For this example, the resource group is hardcoded as "vwan-connectivity-shared-francecentral-001".
+    Runs an az CLI command to list S2S VPN connections in a specific vWAN.
+    Resource group is hardcoded as "vwan-connectivity-shared-francecentral-001".
     """
     az_cmd = "az network vpn-connection list --resource-group vwan-connectivity-shared-francecentral-001 --output table"
     try:
@@ -365,31 +365,24 @@ def list_vwan_vpn(stdscr):
     display_text(stdscr, "vWAN - VPN (S2S Connections)", f"Command: {az_cmd}\n\nOutput:\n{output}")
 
 def main(stdscr):
-    # Initialize color pairs for highlighting in logs display
-    curses.start_color()
-    curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)      # error: red
-    curses.init_pair(2, curses.COLOR_YELLOW, curses.COLOR_BLACK)   # warning: yellow
-    curses.init_pair(3, curses.COLOR_GREEN, curses.COLOR_BLACK)    # success: green
-
+    # Uncomment the following lines if you wish to add VPN option in the future.
+    # environments = load_config()
+    # extra_menu = ["vWAN - VPN"]
+    # env_names = list(environments.keys()) + extra_menu
     environments = load_config()
-    # Add extra top-level menu option "vWAN - VPN"
+    # For now, we use just the environments from config
     env_names = list(environments.keys())
-    env_names.append("vWAN - VPN")
-    if not env_names:
-        stdscr.addstr(2, 2, "No environments found in config!", curses.A_BOLD)
-        stdscr.refresh()
-        stdscr.getch()
-        return
-
-    # Step 1: Environment Selection (or vWAN - VPN)
+    
+    # Step 1: Environment Selection
     while True:
         selected_env_name = select_option(stdscr, "Select Environment", env_names, lambda e: e, include_exit=True)
         if selected_env_name == "Exit":
             return
 
-        if selected_env_name == "vWAN - VPN":
-            list_vwan_vpn(stdscr)
-            continue
+        # Uncomment this block to re-enable vWAN - VPN option.
+        # if selected_env_name == "vWAN - VPN":
+        #     list_vwan_vpn(stdscr)
+        #     continue
 
         # Step 2: Environment Type Selection
         while True:
