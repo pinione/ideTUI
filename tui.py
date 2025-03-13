@@ -77,18 +77,13 @@ def clone_or_pull_repo(env_name, env_type, git_repo):
     if not os.path.exists(BASE_DIR):
         os.makedirs(BASE_DIR)
 
-    if os.path.exists(env_dir):
-        print(f"\n📂 Directory {env_dir} exists. Performing git pull...\n")
-        try:
-            subprocess.run(["git", "-C", env_dir, "pull"], text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except subprocess.CalledProcessError:
-            pass  # Ignore errors and continue
-    else:
-        print(f"\n🚀 Cloning repository {git_repo} into {env_dir}...\n")
-        try:
-            subprocess.run(["git", "clone", git_repo, env_dir], text=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        except subprocess.CalledProcessError:
-            pass  # Ignore errors and continue
+    try:
+        if os.path.exists(env_dir):
+            subprocess.run(["git", "-C", env_dir, "pull"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
+        else:
+            subprocess.run(["git", "clone", git_repo, env_dir], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
+    except subprocess.CalledProcessError:
+        pass  # Ignore errors and continue
 
     return env_dir
 
