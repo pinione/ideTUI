@@ -162,24 +162,37 @@ def main(stdscr):
             namespaces = find_kubernetes_namespaces(repo_dir)
 
             if namespaces:
-                selected_namespace = select_option(
-                    stdscr,
-                    "Select a Kubernetes Namespace",
-                    namespaces,
-                    lambda e: e,
-                    include_back=True,
-                    search_enabled=True  # Enable search
-                )
+                while True:
+                    selected_namespace = select_option(
+                        stdscr,
+                        "Select a Kubernetes Namespace",
+                        namespaces,
+                        lambda e: e,
+                        include_back=True,
+                        search_enabled=True
+                    )
 
-                if selected_namespace == "Go Back":
-                    continue  # Return to environment type selection
+                    if selected_namespace == "Go Back":
+                        break  
 
-                stdscr.clear()
-                stdscr.addstr(2, 2, f"Selected Namespace: {selected_namespace}", curses.A_BOLD)
-                stdscr.refresh()
-                stdscr.getch()
+                    while True:
+                        selected_option = select_option(
+                            stdscr,
+                            "Select an option",
+                            ["Kubernetes", "MariaDB"],
+                            lambda e: e,
+                            include_back=True
+                        )
 
-            return  # Exit after selecting a namespace
+                        if selected_option == "Go Back":
+                            break  
+
+                        stdscr.clear()
+                        stdscr.addstr(2, 2, f"You selected: {selected_option}", curses.A_BOLD)
+                        stdscr.refresh()
+                        stdscr.getch()
+
+            return  
 
 if __name__ == "__main__":
     curses.wrapper(main)
