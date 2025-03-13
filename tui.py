@@ -2,26 +2,28 @@ import curses
 import configparser
 import os
 import subprocess
-import yaml  # Requires PyYAML
+import yaml  # Requires PyYAML installed
 from collections import defaultdict
 
 CONFIG_FILE = "config.ini"
-BASE_DIR = os.path.expanduser("~/env_repos")  # Base directory for repos
+BASE_DIR = os.path.expanduser("~/env_repos")  # Base directory for repositories
 
 def load_config():
     """
     Loads config.ini.
-    Each environment line must have: env name, env type, git repo, jumphost.
+    Each environment line must have:
+      env name, env type, git repo, jumphost, kubectl context (optional)
     """
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
     environments = defaultdict(list)
     for key, value in config["environments"].items():
         parts = [p.strip() for p in value.split(",")]
-        if len(parts) >= 3:
-            env_name, env_type, git_repo = parts[:3]
-            jumphost = parts[3] if len(parts) > 3 else None
-            environments[env_name].append((env_type, git_repo, jumphost))
+        if len(parts) >= 4:
+            env_name, env_type, git_repo, jumphost = parts[:4]
+            # If a context is provided (5th field), use it; otherwise, default to None.
+            context = parts[4] if len(parts) >= 5 and parts[4] != "" else None
+            environments[env_name].append((env_type, git_repo, jumphost, context))
     return environments
 
 def select_option(stdscr, title, options, get_label, include_back=False, include_exit=False, search_enabled=False):
@@ -29,10 +31,10 @@ def select_option(stdscr, title, options, get_label, include_back=False, include
     Displays a scrollable selection menu.
     - title: Menu title.
     - options: List of options.
-    - get_label: Function to convert an option to a display string.
-    - include_back: If True, insert "Go Back" at the top.
-    - include_exit: If True, append "Exit" at the bottom.
-    - search_enabled: If True, allow incremental search.
+    - get_label: Function that converts an option to a display string.
+    - include_back: If True, inserts "Go Back" at the top.
+    - include_exit: If True, appends "Exit" at the bottom.
+    - search_enabled: If True, enables incremental search.
     """
     curses.curs_set(0)
     stdscr.clear()
@@ -129,22 +131,28 @@ def find_kubernetes_namespaces(repo_dir):
                     pass
     return sorted(namespaces)
 
-def connect_and_run_kubectl(jumphost, namespace, command):
+def connect_and_run_kubectl(jumphost, context, namespace, command):
     """
-    SSH to the jumphost and run a kubectl command in the given namespace.
+    SSH to the jumphost and run a kubectl command in the given namespace and context.
+    If a context is provided, the command will include '--context <context>'.
     """
-    ssh_command = f"ssh {jumphost} 'kubectl -n {namespace} {command}'"
+    context_cmd = f"--context {context} " if context else ""
+    kubectl_cmd = f"kubectl {context_cmd}-n {namespace} {command}"
+    ssh_command = f"ssh {jumphost} '{kubectl_cmd}'"
     try:
         subprocess.run(ssh_command, shell=True, check=True)
     except subprocess.CalledProcessError as e:
         print(f"⚠️ Failed to execute command: {e}")
 
-def run_kubectl_get_pods(jumphost, namespace):
+def run_kubectl_get_pods(jumphost, context, namespace):
     """
-    SSH to the jumphost and run 'kubectl -n <namespace> get pods --no-headers'
-    capturing its output. Returns a tuple (command_executed, output).
+    SSH to the jumphost and run 'kubectl get pods --no-headers'
+    with the specified context and namespace.
+    Returns a tuple (command_executed, output).
     """
-    ssh_command = f"ssh {jumphost} 'kubectl -n {namespace} get pods --no-headers'"
+    context_cmd = f"--context {context} " if context else ""
+    kubectl_cmd = f"kubectl {context_cmd}-n {namespace} get pods --no-headers"
+    ssh_command = f"ssh {jumphost} '{kubectl_cmd}'"
     try:
         result = subprocess.run(ssh_command, shell=True, check=True, text=True, stdout=subprocess.PIPE)
         return ssh_command, result.stdout.strip()
@@ -203,7 +211,7 @@ def main(stdscr):
             if selected_env_type_tuple == "Go Back":
                 break
 
-            selected_env_type, selected_git_repo, jumphost = selected_env_type_tuple
+            selected_env_type, selected_git_repo, jumphost, context = selected_env_type_tuple
 
             stdscr.clear()
             stdscr.addstr(2, 2, "Cloning or pulling repository...", curses.A_BOLD)
@@ -271,13 +279,13 @@ def main(stdscr):
 
                             if kubernetes_option == "Show Pods":
                                 # Run 'kubectl get pods' and capture output
-                                cmd_executed, output = run_kubectl_get_pods(jumphost, selected_namespace)
+                                cmd_executed, output = run_kubectl_get_pods(jumphost, context, selected_namespace)
                                 if not output:
                                     output = "No pods found or error executing command."
                                 display_text(stdscr, "Kubectl Get Pods Output", f"Command: {cmd_executed}\n\nOutput:\n{output}")
                             elif kubernetes_option == "Show Logs":
                                 # Get list of pods first
-                                cmd_executed, pods_output = run_kubectl_get_pods(jumphost, selected_namespace)
+                                cmd_executed, pods_output = run_kubectl_get_pods(jumphost, context, selected_namespace)
                                 pods = []
                                 for line in pods_output.splitlines():
                                     parts = line.split()
@@ -301,7 +309,8 @@ def main(stdscr):
                                 )
                                 if selected_pod == "Go Back":
                                     continue
-                                ssh_cmd = f"ssh {jumphost} 'kubectl -n {selected_namespace} logs {selected_pod}'"
+                                ssh_cmd = f"ssh {jumphost} 'kubectl --context {context} -n {selected_namespace} logs {selected_pod}'" if context else \
+                                          f"ssh {jumphost} 'kubectl -n {selected_namespace} logs {selected_pod}'"
                                 try:
                                     result = subprocess.run(ssh_cmd, shell=True, check=True, text=True, stdout=subprocess.PIPE)
                                     logs_output = result.stdout.strip()
@@ -309,7 +318,7 @@ def main(stdscr):
                                     logs_output = f"Error retrieving logs: {e}"
                                 display_text(stdscr, f"Logs for Pod: {selected_pod}", f"Command: {ssh_cmd}\n\nLogs:\n{logs_output}")
                     else:
-                        # For MariaDB and Cassandra, show a placeholder message
+                        # Placeholder for MariaDB and Cassandra actions
                         stdscr.clear()
                         stdscr.addstr(2, 2, f"You selected: {selected_option}", curses.A_BOLD)
                         stdscr.addstr(4, 2, "Feature not implemented yet.", curses.A_DIM)
