@@ -187,6 +187,17 @@ def run_kubectl_get_pods(jumphost, context, namespace):
     except subprocess.CalledProcessError:
         return ssh_command, ""
 
+def get_user_input(stdscr, prompt):
+    """
+    Prompts the user for input and returns the entered string.
+    """
+    curses.echo()
+    stdscr.addstr(prompt)
+    stdscr.refresh()
+    s = stdscr.getstr().decode()
+    curses.noecho()
+    return s
+
 def display_text(stdscr, title, text):
     """
     Displays a scrollable text window with the given title and text.
@@ -198,6 +209,7 @@ def display_text(stdscr, title, text):
       - Up/Down arrow keys to scroll line by line.
       - Page Up (KEY_PPAGE) and Page Down (KEY_NPAGE) for page scrolling.
       - End (KEY_END) to jump to the end of the text.
+      - '/' to search within the text.
     Any other key exits the display.
     """
     # Precompile regex pattern for keywords
@@ -238,7 +250,7 @@ def display_text(stdscr, title, text):
                     pos = end
                 if pos < len(line) and col < max_cols - 1:
                     stdscr.addstr(i + 1, col, line[pos:][:max_cols - col - 1])
-        stdscr.addstr(max_rows - 1, 0, "Up/Down: scroll  PageUp/PageDown: page  End: jump to end  Any other key: exit", curses.A_DIM)
+        stdscr.addstr(max_rows - 1, 0, "Up/Down: scroll  PageUp/PageDown: page  End: jump to end  '/': search  Any other key: exit", curses.A_DIM)
         stdscr.refresh()
         key = stdscr.getch()
         if key == curses.KEY_UP and current_line > 0:
@@ -251,6 +263,22 @@ def display_text(stdscr, title, text):
             current_line = max(current_line - display_height, 0)
         elif key == curses.KEY_END:  # Jump to end
             current_line = max(0, len(lines) - display_height)
+        elif key == ord('/'):
+            # Search within text
+            stdscr.addstr(max_rows - 1, 0, "Enter search query: ", curses.A_BOLD)
+            stdscr.refresh()
+            query = get_user_input(stdscr, "")
+            # Find first line containing the query (case-insensitive)
+            found = False
+            for idx in range(current_line, len(lines)):
+                if query.lower() in lines[idx].lower():
+                    current_line = idx
+                    found = True
+                    break
+            if not found:
+                stdscr.addstr(max_rows - 2, 0, "Not found", curses.A_BOLD)
+                stdscr.refresh()
+                curses.napms(1000)
         else:
             break
 
@@ -456,7 +484,7 @@ def main(stdscr):
                                         kv = re.match(r"(\w+)\s*=\s*(\".*?\"|\S+)", line)
                                         if kv:
                                             key = kv.group(1)
-                                            # For cassandra, look for "hosts" key, split by comma and pick the first
+                                            # For cassandra, use key "hosts" and pick the first IP
                                             if key.lower() == "hosts":
                                                 val = kv.group(2).strip('"')
                                                 host = val.split(",")[0].strip() if val else "localhost"
