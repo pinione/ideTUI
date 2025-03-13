@@ -200,7 +200,7 @@ def display_text(stdscr, title, text):
       - End (KEY_END) to jump to the end of the text.
     Any other key exits the display.
     """
-    # Precompile a regex to find keywords
+    # Precompile regex pattern for keywords
     pattern = re.compile(r"(error|warning|success)", re.IGNORECASE)
     lines = text.splitlines()
     current_line = 0
@@ -217,11 +217,11 @@ def display_text(stdscr, title, text):
                 pos = 0
                 for match in pattern.finditer(line):
                     start, end = match.span()
-                    # Add text before the keyword
+                    # Print text before keyword
                     if start > pos:
                         stdscr.addstr(i + 1, col, line[pos:start][:max_cols - col - 1])
                         col += len(line[pos:start])
-                    # Determine color for the keyword
+                    # Determine color for keyword
                     word = match.group(0).lower()
                     if word == "error":
                         color = curses.color_pair(1)
@@ -231,13 +231,11 @@ def display_text(stdscr, title, text):
                         color = curses.color_pair(3)
                     else:
                         color = curses.A_NORMAL
-                    # Add the keyword in color (truncate if needed)
                     keyword = line[start:end]
                     if col < max_cols - 1:
                         stdscr.addstr(i + 1, col, keyword[:max_cols - col - 1], color)
                         col += len(keyword)
                     pos = end
-                # Add any remaining text
                 if pos < len(line) and col < max_cols - 1:
                     stdscr.addstr(i + 1, col, line[pos:][:max_cols - col - 1])
         stdscr.addstr(max_rows - 1, 0, "Up/Down: scroll  PageUp/PageDown: page  End: jump to end  Any other key: exit", curses.A_DIM)
@@ -296,7 +294,7 @@ def parse_application_conf(conf_path):
     return reporting, cassandra
 
 def main(stdscr):
-    # Initialize color support
+    # Initialize color pairs for highlighting in logs display
     curses.start_color()
     curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)      # error: red
     curses.init_pair(2, curses.COLOR_YELLOW, curses.COLOR_BLACK)   # warning: yellow
@@ -371,11 +369,11 @@ def main(stdscr):
                         break
 
                     if selected_option == "Kubernetes":
-                        # Kubernetes Actions Menu
+                        # Kubernetes Actions Menu (include the namespace in the title)
                         while True:
                             kubernetes_option = select_option(
                                 stdscr,
-                                "Kubernetes Actions",
+                                f"Kubernetes Actions for '{selected_namespace}'",
                                 ["Show Pods", "Show Logs"],
                                 lambda e: e,
                                 include_back=True
