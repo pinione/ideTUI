@@ -52,7 +52,7 @@ def select_option(stdscr, title, options, get_label, include_back=False, include
     curses.curs_set(0)
     stdscr.clear()
     stdscr.refresh()
-    original_options = options[:]  # Copy list
+    original_options = options[:]
     if include_back and "Go Back" not in original_options:
         original_options.insert(0, "Go Back")
     if include_exit and "Exit" not in original_options:
@@ -62,7 +62,7 @@ def select_option(stdscr, title, options, get_label, include_back=False, include
     current_row = 0
     scroll_pos = 0
     max_rows, _ = stdscr.getmaxyx()
-    max_visible_items = max_rows - 4  # Reserve space for title and search bar
+    max_visible_items = max_rows - 4
 
     while True:
         stdscr.clear()
@@ -76,7 +76,7 @@ def select_option(stdscr, title, options, get_label, include_back=False, include
         visible_options = filtered_options[scroll_pos:scroll_pos + max_visible_items]
         for idx, option in enumerate(visible_options):
             label = get_label(option) if option not in ["Go Back", "Exit"] else option
-            line_pos = idx + 3  # Offset for title/search
+            line_pos = idx + 3
             if scroll_pos + idx == current_row:
                 stdscr.addstr(line_pos, 2, f"> {label}", curses.A_REVERSE)
             else:
@@ -198,10 +198,16 @@ def parse_smdp_yaml(conf_path):
 def is_jumphost_available(jumphost):
     """
     Checks if the jumphost is reachable on port 22.
+    If the jumphost is in the format '<name>@<IP>', extracts the IP address.
     Returns True if reachable, False otherwise.
     """
+    # Extract IP if format is 'name@IP'
+    if "@" in jumphost:
+        host = jumphost.split("@")[-1]
+    else:
+        host = jumphost
     try:
-        s = socket.create_connection((jumphost, 22), timeout=5)
+        s = socket.create_connection((host, 22), timeout=5)
         s.close()
         return True
     except Exception:
@@ -264,7 +270,7 @@ def display_text(stdscr, title, text):
     lines = text.splitlines()
     current_line = 0
     max_rows, max_cols = stdscr.getmaxyx()
-    display_height = max_rows - 2  # Reserve two lines for title and prompt
+    display_height = max_rows - 2
 
     while True:
         stdscr.clear()
@@ -302,11 +308,11 @@ def display_text(stdscr, title, text):
             current_line -= 1
         elif key == curses.KEY_DOWN and current_line < len(lines) - display_height:
             current_line += 1
-        elif key == curses.KEY_NPAGE:  # Page Down
+        elif key == curses.KEY_NPAGE:
             current_line = min(current_line + display_height, max(0, len(lines) - display_height))
-        elif key == curses.KEY_PPAGE:  # Page Up
+        elif key == curses.KEY_PPAGE:
             current_line = max(current_line - display_height, 0)
-        elif key == curses.KEY_END:  # Jump to end
+        elif key == curses.KEY_END:
             current_line = max(0, len(lines) - display_height)
         elif key == ord('/'):
             stdscr.addstr(max_rows - 1, 0, "Enter search query: ", curses.A_BOLD)
@@ -380,7 +386,7 @@ def list_vwan_vpn(stdscr):
 def main(stdscr):
     # Uncomment the VPN option in the environment menu if needed.
     environments = load_config()
-    # For now, use only environments from config
+    # For now, we use just the environments from config
     env_names = list(environments.keys())
     
     # Step 1: Environment Selection
@@ -389,7 +395,7 @@ def main(stdscr):
         if selected_env_name == "Exit":
             return
 
-        # Uncomment the following block to re-enable vWAN - VPN
+        # Uncomment to re-enable vWAN - VPN option
         # if selected_env_name == "vWAN - VPN":
         #     list_vwan_vpn(stdscr)
         #     continue
@@ -436,11 +442,6 @@ def main(stdscr):
                 if selected_namespace == "Go Back":
                     break
 
-                # Before any Kubernetes actions, check jumphost availability on port 22.
-                if not is_jumphost_available(jumphost):
-                    display_text(stdscr, "Jumphost Unavailable", f"The jumphost {jumphost} is not reachable on port 22.\nPlease ensure SSH (port 22) is available.")
-                    continue
-
                 # Step 5: Action Selection Menu
                 while True:
                     selected_option = select_option(
@@ -466,11 +467,9 @@ def main(stdscr):
                             if kubernetes_option == "Go Back":
                                 break
 
-                            if not jumphost:
-                                stdscr.clear()
-                                stdscr.addstr(2, 2, "No jumphost defined for this environment!", curses.A_BOLD)
-                                stdscr.refresh()
-                                stdscr.getch()
+                            # Check jumphost availability now
+                            if not is_jumphost_available(jumphost):
+                                display_text(stdscr, "Jumphost Unavailable", f"The jumphost {jumphost} is not reachable on port 22.\nPlease ensure SSH (port 22) is available.")
                                 continue
 
                             if kubernetes_option == "Show Pods":
@@ -601,18 +600,6 @@ def main(stdscr):
                 # End of Action Selection loop: return to Namespace selection.
             # End of Namespace Selection loop: break to Environment Type selection.
             return  # Exit after finishing one environment type selection
-
-def is_jumphost_available(jumphost):
-    """
-    Checks if the jumphost is reachable on port 22.
-    Returns True if reachable, False otherwise.
-    """
-    try:
-        s = socket.create_connection((jumphost, 22), timeout=5)
-        s.close()
-        return True
-    except Exception:
-        return False
 
 if __name__ == "__main__":
     curses.wrapper(main)
