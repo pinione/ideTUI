@@ -84,6 +84,27 @@ def select_option(stdscr, title, options, get_label, include_back=False, include
             current_row = 0  
             scroll_pos = 0  
 
+def find_kubernetes_namespaces(repo_dir):
+    """Scans the cloned repository for Kubernetes namespace YAML files and extracts real namespace names."""
+    namespaces = set()
+
+    for root, _, files in os.walk(repo_dir):
+        for file in files:
+            if file.endswith(".yaml") or file.endswith(".yml"):
+                file_path = os.path.join(root, file)
+                try:
+                    with open(file_path, "r", encoding="utf-8") as yaml_file:
+                        docs = list(yaml.safe_load_all(yaml_file))
+                        for doc in docs:
+                            if isinstance(doc, dict) and doc.get("kind") == "Namespace":
+                                metadata = doc.get("metadata", {})
+                                if "name" in metadata:
+                                    namespaces.add(metadata["name"])
+                except Exception as e:
+                    print(f"⚠️ Error reading {file_path}: {e}")
+
+    return sorted(namespaces)
+
 def connect_and_run_kubectl(jumphost, namespace, command):
     """SSH into the jumphost and run kubectl commands."""
     ssh_command = f"ssh {jumphost} 'kubectl -n {namespace} {command}'"
@@ -130,7 +151,7 @@ def main(stdscr):
             repo_dir = os.path.join(BASE_DIR, f"{selected_env_name}_{selected_env_type}")
             os.makedirs(repo_dir, exist_ok=True)
 
-            namespaces = ["namespace1", "namespace2"]  
+            namespaces = find_kubernetes_namespaces(repo_dir)  
 
             if namespaces:
                 while True:
