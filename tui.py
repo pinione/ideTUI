@@ -23,7 +23,7 @@ def load_config():
     return environments
 
 def select_option(stdscr, title, options, get_label, include_back=False, include_exit=False, search_enabled=False):
-    """Generic function to create a selection menu in TUI, supports incremental search."""
+    """Generic function to create a scrollable selection menu in TUI, supports incremental search."""
     curses.curs_set(0)
     stdscr.clear()
     stdscr.refresh()
@@ -37,6 +37,9 @@ def select_option(stdscr, title, options, get_label, include_back=False, include
     filtered_options = original_options  # Start with all options
     search_query = ""
     current_row = 0
+    scroll_pos = 0
+    max_rows, _ = stdscr.getmaxyx()  # Get terminal size
+    max_visible_items = max_rows - 4  # Leave space for title and search bar
 
     while True:
         stdscr.clear()
@@ -45,12 +48,21 @@ def select_option(stdscr, title, options, get_label, include_back=False, include
         if search_enabled:
             stdscr.addstr(1, 2, f"Search: {search_query}_", curses.A_DIM)
 
-        for idx, option in enumerate(filtered_options):
+        # Scroll handling
+        if current_row >= scroll_pos + max_visible_items:
+            scroll_pos = current_row - max_visible_items + 1
+        elif current_row < scroll_pos:
+            scroll_pos = current_row
+
+        visible_options = filtered_options[scroll_pos:scroll_pos + max_visible_items]
+
+        for idx, option in enumerate(visible_options):
             label = get_label(option) if option not in ["Go Back", "Exit"] else option
-            if idx == current_row:
-                stdscr.addstr(idx + 3, 2, f"> {label}", curses.A_REVERSE)
+            line_pos = idx + 3  # Offset for title & search bar
+            if scroll_pos + idx == current_row:
+                stdscr.addstr(line_pos, 2, f"> {label}", curses.A_REVERSE)
             else:
-                stdscr.addstr(idx + 3, 2, f"  {label}")
+                stdscr.addstr(line_pos, 2, f"  {label}")
 
         stdscr.refresh()
         key = stdscr.getch()
@@ -65,10 +77,12 @@ def select_option(stdscr, title, options, get_label, include_back=False, include
             search_query += chr(key)
             filtered_options = [opt for opt in original_options if search_query.lower() in get_label(opt).lower()]
             current_row = 0  # Reset cursor position
+            scroll_pos = 0  # Reset scroll
         elif search_enabled and key in [curses.KEY_BACKSPACE, 127]:  # Handle backspace
             search_query = search_query[:-1]
             filtered_options = [opt for opt in original_options if search_query.lower() in get_label(opt).lower()]
             current_row = 0  # Reset cursor position
+            scroll_pos = 0  # Reset scroll
 
 def clone_or_pull_repo(env_name, env_type, git_repo):
     """Creates a directory for the environment and clones/pulls the Git repository."""
@@ -165,26 +179,7 @@ def main(stdscr):
                 stdscr.refresh()
                 stdscr.getch()
 
-            while True:
-                additional_options = sorted(["Cassandra", "Kubernetes", "MariaDB"])
-                selected_option = select_option(
-                    stdscr,
-                    "Select an option",
-                    additional_options,
-                    lambda e: e,
-                    include_back=True
-                )
-
-                if selected_option == "Go Back":
-                    break  # Go back to namespace selection
-
-                stdscr.clear()
-                stdscr.addstr(2, 2, f"You selected: {selected_option}", curses.A_BOLD)
-                stdscr.addstr(4, 2, "Press any key to continue...")
-                stdscr.refresh()
-                stdscr.getch()
-
-            return  # Exit after Kubernetes, MariaDB, Cassandra selection
+            return  # Exit after selecting a namespace
 
 if __name__ == "__main__":
     curses.wrapper(main)
