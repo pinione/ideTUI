@@ -159,6 +159,41 @@ def find_application_conf(repo_dir, namespace):
                 return os.path.join(root, "application.conf")
     return None
 
+def find_smdp_yaml(repo_dir, namespace):
+    """
+    Recursively searches under <repo_dir>/deployments/<namespace>/ for a file named "smdp.yaml".
+    Returns the full path if found, or None otherwise.
+    """
+    deployments_dir = os.path.join(repo_dir, "deployments", namespace)
+    if os.path.isdir(deployments_dir):
+        for root, dirs, files in os.walk(deployments_dir):
+            if "smdp.yaml" in files:
+                return os.path.join(root, "smdp.yaml")
+    return None
+
+def parse_smdp_yaml(conf_path):
+    """
+    Parses the given smdp.yaml file (assumed to be a Kubernetes deployment)
+    and extracts environment variables from the first container's env list.
+    Returns a dictionary mapping variable names to their values.
+    """
+    try:
+        with open(conf_path, "r", encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        env_dict = {}
+        if ("spec" in data and "template" in data["spec"] and
+            "spec" in data["spec"]["template"] and
+            "containers" in data["spec"]["template"]["spec"]):
+            containers = data["spec"]["template"]["spec"]["containers"]
+            if containers and isinstance(containers, list):
+                env_list = containers[0].get("env", [])
+                for item in env_list:
+                    if "name" in item and "value" in item:
+                        env_dict[item["name"]] = item["value"]
+        return env_dict
+    except Exception:
+        return {}
+
 def connect_and_run_kubectl(jumphost, context, namespace, command):
     """
     SSH to the jumphost and run a kubectl command in the given namespace and context.
@@ -212,7 +247,6 @@ def display_text(stdscr, title, text):
       - '/' to search within the text.
     Any other key exits the display.
     """
-    # Precompile regex pattern for keywords
     pattern = re.compile(r"(error|warning|success)", re.IGNORECASE)
     lines = text.splitlines()
     current_line = 0
@@ -229,11 +263,9 @@ def display_text(stdscr, title, text):
                 pos = 0
                 for match in pattern.finditer(line):
                     start, end = match.span()
-                    # Print text before keyword
                     if start > pos:
                         stdscr.addstr(i + 1, col, line[pos:start][:max_cols - col - 1])
                         col += len(line[pos:start])
-                    # Determine color for keyword
                     word = match.group(0).lower()
                     if word == "error":
                         color = curses.color_pair(1)
@@ -264,11 +296,9 @@ def display_text(stdscr, title, text):
         elif key == curses.KEY_END:  # Jump to end
             current_line = max(0, len(lines) - display_height)
         elif key == ord('/'):
-            # Search within text
             stdscr.addstr(max_rows - 1, 0, "Enter search query: ", curses.A_BOLD)
             stdscr.refresh()
             query = get_user_input(stdscr, "")
-            # Find first line containing the query (case-insensitive)
             found = False
             for idx in range(current_line, len(lines)):
                 if query.lower() in lines[idx].lower():
@@ -455,8 +485,30 @@ def main(stdscr):
                     elif selected_option == "MariaDB":
                         conf_path = find_application_conf(repo_dir, selected_namespace)
                         if not conf_path:
-                            output = f"application.conf not found under secrets for namespace '{selected_namespace}'."
+                            smdp_path = find_smdp_yaml(repo_dir, selected_namespace)
+                            if smdp_path:
+                                env_dict = parse_smdp_yaml(smdp_path)
+                                reporting = {
+                                    "host": env_dict.get("DB_HOST", "localhost"),
+                                    "port": env_dict.get("DB_PORT", "3306"),
+                                    "username": env_dict.get("DB_USER", "root"),
+                                    "password": env_dict.get("DB_PASSWD", ""),
+                                    "dbname": env_dict.get("DB_NAME", "")
+                                }
+                                cassandra = {
+                                    "host": env_dict.get("CASSANDRA_HOST1", "localhost"),
+                                    "port": env_dict.get("CASSANDRA_PORT", "9042"),
+                                    "keyspace": env_dict.get("CASSANDRA_KEYSPACE", ""),
+                                    "username": env_dict.get("CASSANDRA_USER", ""),
+                                    "password": env_dict.get("CASSANDRA_PASSWD", "")
+                                }
+                                source = "smdp.yaml"
+                            else:
+                                reporting = {}
+                                cassandra = {}
+                                source = None
                         else:
+                            source = "application.conf"
                             try:
                                 with open(conf_path, "r", encoding="utf-8") as f:
                                     content = f.read()
@@ -484,7 +536,6 @@ def main(stdscr):
                                         kv = re.match(r"(\w+)\s*=\s*(\".*?\"|\S+)", line)
                                         if kv:
                                             key = kv.group(1)
-                                            # For cassandra, use key "hosts" and pick the first IP
                                             if key.lower() == "hosts":
                                                 val = kv.group(2).strip('"')
                                                 host = val.split(",")[0].strip() if val else "localhost"
@@ -492,6 +543,9 @@ def main(stdscr):
                                             else:
                                                 val = kv.group(2).strip('"')
                                                 cassandra[key] = val
+                        if not source:
+                            output = f"Neither application.conf nor smdp.yaml found under secrets for namespace '{selected_namespace}'."
+                        else:
                             mariadb_cmd = "Not enough data to build MariaDB command."
                             cassandra_cmd = "Not enough data to build Cassandra command."
                             if reporting:
@@ -499,14 +553,17 @@ def main(stdscr):
                                 port = reporting.get("port", "3306")
                                 username = reporting.get("username", "root")
                                 password = reporting.get("password", "")
-                                mariadb_cmd = f"mysql -h {host} -P {port} -u {username} -p{password}"
+                                dbname = reporting.get("dbname", "")
+                                mariadb_cmd = f"mysql -h {host} -P {port} -u {username} -p{password} {dbname}"
                             if cassandra:
                                 host = cassandra.get("host", "localhost")
                                 port = cassandra.get("port", "9042")
+                                keyspace = cassandra.get("keyspace", "")
                                 username = cassandra.get("username", "")
                                 password = cassandra.get("password", "")
-                                cassandra_cmd = f"cqlsh {host} {port} -u {username} -p {password}"
-                            output = f"MariaDB Connection Command:\n{mariadb_cmd}\n\nCassandra Connection Command:\n{cassandra_cmd}"
+                                cassandra_cmd = f"cqlsh {host} {port} -u {username} -p {password} {keyspace}"
+                            output = (f"Source: {source}\n\nMariaDB Connection Command:\n{mariadb_cmd}\n\n"
+                                      f"Cassandra Connection Command:\n{cassandra_cmd}")
                         display_text(stdscr, "Database Connection Commands", output)
                     elif selected_option == "Cassandra":
                         stdscr.clear()
