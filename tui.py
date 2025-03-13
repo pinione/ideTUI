@@ -238,7 +238,7 @@ def main(stdscr):
                 stdscr.getch()
                 break
 
-            # Step 4: Namespace Selection
+            # Step 4: Namespace Selection (No pause after selection)
             while True:
                 selected_namespace = select_option(
                     stdscr,
@@ -251,11 +251,7 @@ def main(stdscr):
                 if selected_namespace == "Go Back":
                     break
 
-                stdscr.clear()
-                stdscr.addstr(2, 2, f"Selected Namespace: {selected_namespace}", curses.A_BOLD)
-                stdscr.refresh()
-                stdscr.getch()
-
+                # Immediately proceed to the next menu without pausing
                 # Step 5: Action Selection Menu
                 while True:
                     selected_option = select_option(
