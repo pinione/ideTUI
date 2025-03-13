@@ -456,8 +456,14 @@ def main(stdscr):
                                         kv = re.match(r"(\w+)\s*=\s*(\".*?\"|\S+)", line)
                                         if kv:
                                             key = kv.group(1)
-                                            val = kv.group(2).strip('"')
-                                            cassandra[key] = val
+                                            # For cassandra, look for "hosts" key, split by comma and pick the first
+                                            if key.lower() == "hosts":
+                                                val = kv.group(2).strip('"')
+                                                host = val.split(",")[0].strip() if val else "localhost"
+                                                cassandra["host"] = host
+                                            else:
+                                                val = kv.group(2).strip('"')
+                                                cassandra[key] = val
                             mariadb_cmd = "Not enough data to build MariaDB command."
                             cassandra_cmd = "Not enough data to build Cassandra command."
                             if reporting:
