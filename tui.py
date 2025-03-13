@@ -5,6 +5,7 @@ import subprocess
 import re
 import yaml  # Requires PyYAML installed
 import urllib.parse
+import socket
 from collections import defaultdict
 
 CONFIG_FILE = "config.ini"
@@ -194,6 +195,18 @@ def parse_smdp_yaml(conf_path):
     except Exception:
         return {}
 
+def is_jumphost_available(jumphost):
+    """
+    Checks if the jumphost is reachable on port 22.
+    Returns True if reachable, False otherwise.
+    """
+    try:
+        s = socket.create_connection((jumphost, 22), timeout=5)
+        s.close()
+        return True
+    except Exception:
+        return False
+
 def connect_and_run_kubectl(jumphost, context, namespace, command):
     """
     SSH to the jumphost and run a kubectl command in the given namespace and context.
@@ -365,12 +378,9 @@ def list_vwan_vpn(stdscr):
     display_text(stdscr, "vWAN - VPN (S2S Connections)", f"Command: {az_cmd}\n\nOutput:\n{output}")
 
 def main(stdscr):
-    # Uncomment the following lines if you wish to add VPN option in the future.
-    # environments = load_config()
-    # extra_menu = ["vWAN - VPN"]
-    # env_names = list(environments.keys()) + extra_menu
+    # Uncomment the VPN option in the environment menu if needed.
     environments = load_config()
-    # For now, we use just the environments from config
+    # For now, use only environments from config
     env_names = list(environments.keys())
     
     # Step 1: Environment Selection
@@ -379,7 +389,7 @@ def main(stdscr):
         if selected_env_name == "Exit":
             return
 
-        # Uncomment this block to re-enable vWAN - VPN option.
+        # Uncomment the following block to re-enable vWAN - VPN
         # if selected_env_name == "vWAN - VPN":
         #     list_vwan_vpn(stdscr)
         #     continue
@@ -425,6 +435,11 @@ def main(stdscr):
                 )
                 if selected_namespace == "Go Back":
                     break
+
+                # Before any Kubernetes actions, check jumphost availability on port 22.
+                if not is_jumphost_available(jumphost):
+                    display_text(stdscr, "Jumphost Unavailable", f"The jumphost {jumphost} is not reachable on port 22.\nPlease ensure SSH (port 22) is available.")
+                    continue
 
                 # Step 5: Action Selection Menu
                 while True:
@@ -586,6 +601,18 @@ def main(stdscr):
                 # End of Action Selection loop: return to Namespace selection.
             # End of Namespace Selection loop: break to Environment Type selection.
             return  # Exit after finishing one environment type selection
+
+def is_jumphost_available(jumphost):
+    """
+    Checks if the jumphost is reachable on port 22.
+    Returns True if reachable, False otherwise.
+    """
+    try:
+        s = socket.create_connection((jumphost, 22), timeout=5)
+        s.close()
+        return True
+    except Exception:
+        return False
 
 if __name__ == "__main__":
     curses.wrapper(main)
