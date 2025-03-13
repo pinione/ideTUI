@@ -2,21 +2,19 @@ import curses
 import configparser
 import os
 import subprocess
-import yaml  # Requires PyYAML installed
+import yaml  # Requires PyYAML
 from collections import defaultdict
 
 CONFIG_FILE = "config.ini"
-BASE_DIR = os.path.expanduser("~/env_repos")  # Base directory to store cloned repos
+BASE_DIR = os.path.expanduser("~/env_repos")  # Base directory for repos
 
 def load_config():
     """
-    Loads the configuration from config.ini.
-    Each environment line is expected to have:
-    environment name, environment type, git_repo, jumphost (optional)
+    Loads config.ini.
+    Each environment line must have: env name, env type, git repo, jumphost.
     """
     config = configparser.ConfigParser()
     config.read(CONFIG_FILE)
-
     environments = defaultdict(list)
     for key, value in config["environments"].items():
         parts = [p.strip() for p in value.split(",")]
@@ -29,41 +27,37 @@ def load_config():
 def select_option(stdscr, title, options, get_label, include_back=False, include_exit=False, search_enabled=False):
     """
     Displays a scrollable selection menu.
-    - title: menu title.
-    - options: list of options.
-    - get_label: function to get the display label of an option.
-    - include_back: if True, a "Go Back" option is inserted at the top.
-    - include_exit: if True, an "Exit" option is appended.
-    - search_enabled: if True, enables incremental search.
+    - title: Menu title.
+    - options: List of options.
+    - get_label: Function to convert an option to a display string.
+    - include_back: If True, insert "Go Back" at the top.
+    - include_exit: If True, append "Exit" at the bottom.
+    - search_enabled: If True, allow incremental search.
     """
     curses.curs_set(0)
     stdscr.clear()
     stdscr.refresh()
-
     original_options = options[:]  # Copy list
     if include_back and "Go Back" not in original_options:
         original_options.insert(0, "Go Back")
     if include_exit and "Exit" not in original_options:
         original_options.append("Exit")
-
     filtered_options = original_options
     search_query = ""
     current_row = 0
     scroll_pos = 0
     max_rows, _ = stdscr.getmaxyx()
-    max_visible_items = max_rows - 4  # Reserve space for title and search
+    max_visible_items = max_rows - 4  # Reserve space for title and search bar
 
     while True:
         stdscr.clear()
         stdscr.addstr(0, 2, title, curses.A_BOLD | curses.A_UNDERLINE)
         if search_enabled:
             stdscr.addstr(1, 2, f"Search: {search_query}_", curses.A_DIM)
-
         if current_row >= scroll_pos + max_visible_items:
             scroll_pos = current_row - max_visible_items + 1
         elif current_row < scroll_pos:
             scroll_pos = current_row
-
         visible_options = filtered_options[scroll_pos:scroll_pos + max_visible_items]
         for idx, option in enumerate(visible_options):
             label = get_label(option) if option not in ["Go Back", "Exit"] else option
@@ -93,23 +87,28 @@ def select_option(stdscr, title, options, get_label, include_back=False, include
 
 def clone_or_pull_repo(env_name, env_type, git_repo):
     """
-    Clones or pulls the repository.
-    Output is suppressed so it does not interfere with curses.
+    Clones or pulls the repo. Output is suppressed.
     """
     env_dir = os.path.join(BASE_DIR, f"{env_name}_{env_type}")
     os.makedirs(BASE_DIR, exist_ok=True)
     try:
         if os.path.exists(env_dir):
-            subprocess.run(["git", "-C", env_dir, "pull"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
+            subprocess.run(["git", "-C", env_dir, "pull"],
+                           stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL,
+                           text=True)
         else:
-            subprocess.run(["git", "clone", git_repo, env_dir], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, text=True)
+            subprocess.run(["git", "clone", git_repo, env_dir],
+                           stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL,
+                           text=True)
     except subprocess.CalledProcessError:
-        pass  # Ignore errors for now
+        pass
     return env_dir
 
 def find_kubernetes_namespaces(repo_dir):
     """
-    Scans the repository for YAML files defining a Kubernetes Namespace.
+    Scans the repo for YAML files defining a Kubernetes Namespace.
     Returns a sorted list of real namespace names.
     """
     namespaces = set()
@@ -125,20 +124,55 @@ def find_kubernetes_namespaces(repo_dir):
                                 metadata = doc.get("metadata", {})
                                 if "name" in metadata:
                                     namespaces.add(metadata["name"])
-                except Exception as e:
-                    # Optionally log errors
+                except Exception:
                     pass
     return sorted(namespaces)
 
 def connect_and_run_kubectl(jumphost, namespace, command):
     """
-    Connects via SSH to the jumphost and runs a kubectl command in the given namespace.
+    SSH to the jumphost and run a kubectl command in the given namespace.
     """
     ssh_command = f"ssh {jumphost} 'kubectl -n {namespace} {command}'"
     try:
         subprocess.run(ssh_command, shell=True, check=True)
     except subprocess.CalledProcessError as e:
         print(f"⚠️ Failed to execute command: {e}")
+
+def run_kubectl_get_pods(jumphost, namespace):
+    """
+    SSH to the jumphost and run 'kubectl -n <namespace> get pods --no-headers',
+    capturing the output.
+    """
+    ssh_command = f"ssh {jumphost} 'kubectl -n {namespace} get pods --no-headers'"
+    try:
+        result = subprocess.run(ssh_command, shell=True, check=True, text=True, stdout=subprocess.PIPE)
+        return result.stdout.strip()
+    except subprocess.CalledProcessError:
+        return ""
+
+def display_text(stdscr, title, text):
+    """
+    Displays a scrollable text window with the given title and text.
+    Use Up/Down to scroll and any other key to exit.
+    """
+    lines = text.splitlines()
+    current_line = 0
+    max_rows, max_cols = stdscr.getmaxyx()
+    while True:
+        stdscr.clear()
+        stdscr.addstr(0, 0, title, curses.A_BOLD | curses.A_UNDERLINE)
+        for i in range(max_rows - 2):
+            if current_line + i < len(lines):
+                stdscr.addstr(i + 1, 0, lines[current_line + i][:max_cols - 1])
+        stdscr.addstr(max_rows - 1, 0, "Use Up/Down to scroll, any other key to exit...", curses.A_DIM)
+        stdscr.refresh()
+        key = stdscr.getch()
+        if key == curses.KEY_UP and current_line > 0:
+            current_line -= 1
+        elif key == curses.KEY_DOWN and current_line < len(lines) - (max_rows - 2):
+            current_line += 1
+        else:
+            break
 
 def main(stdscr):
     environments = load_config()
@@ -148,14 +182,14 @@ def main(stdscr):
         stdscr.getch()
         return
 
-    # --- Step 1: Environment Selection ---
+    # Step 1: Environment Selection
     while True:
         env_names = list(environments.keys())
         selected_env_name = select_option(stdscr, "Select Environment", env_names, lambda e: e, include_exit=True)
         if selected_env_name == "Exit":
             return
 
-        # --- Step 2: Environment Type Selection ---
+        # Step 2: Environment Type Selection
         while True:
             env_options = environments[selected_env_name]
             selected_env_type_tuple = select_option(
@@ -175,7 +209,7 @@ def main(stdscr):
             stdscr.refresh()
             repo_dir = clone_or_pull_repo(selected_env_name, selected_env_type, selected_git_repo)
 
-            # --- Step 3: Find Real Kubernetes Namespaces ---
+            # Step 3: Find Real Kubernetes Namespaces
             namespaces = find_kubernetes_namespaces(repo_dir)
             if not namespaces:
                 stdscr.clear()
@@ -184,7 +218,7 @@ def main(stdscr):
                 stdscr.getch()
                 break
 
-            # --- Step 4: Namespace Selection ---
+            # Step 4: Namespace Selection
             while True:
                 selected_namespace = select_option(
                     stdscr,
@@ -202,7 +236,7 @@ def main(stdscr):
                 stdscr.refresh()
                 stdscr.getch()
 
-                # --- Step 5: Action Selection Menu ---
+                # Step 5: Action Selection Menu
                 while True:
                     selected_option = select_option(
                         stdscr,
@@ -215,6 +249,7 @@ def main(stdscr):
                         break
 
                     if selected_option == "Kubernetes":
+                        # Kubernetes Actions Menu
                         while True:
                             kubernetes_option = select_option(
                                 stdscr,
@@ -225,29 +260,62 @@ def main(stdscr):
                             )
                             if kubernetes_option == "Go Back":
                                 break
+
                             if not jumphost:
                                 stdscr.clear()
                                 stdscr.addstr(2, 2, "No jumphost defined for this environment!", curses.A_BOLD)
                                 stdscr.refresh()
                                 stdscr.getch()
                                 continue
+
                             if kubernetes_option == "Show Pods":
-                                connect_and_run_kubectl(jumphost, selected_namespace, "get pods")
+                                # Run and capture 'kubectl get pods' output
+                                output = run_kubectl_get_pods(jumphost, selected_namespace)
+                                if not output:
+                                    output = "No pods found or error executing command."
+                                display_text(stdscr, "Kubectl Get Pods Output", output)
                             elif kubernetes_option == "Show Logs":
-                                connect_and_run_kubectl(jumphost, selected_namespace, "logs --all-containers")
-                            stdscr.clear()
-                            stdscr.addstr(2, 2, "Command executed. Press any key to return...", curses.A_BOLD)
-                            stdscr.refresh()
-                            stdscr.getch()
+                                # First, get the list of pods
+                                pods_output = run_kubectl_get_pods(jumphost, selected_namespace)
+                                pods = []
+                                for line in pods_output.splitlines():
+                                    parts = line.split()
+                                    if parts:
+                                        pods.append(parts[0])
+                                if not pods:
+                                    stdscr.clear()
+                                    stdscr.addstr(2, 2, "No pods found.", curses.A_BOLD)
+                                    stdscr.refresh()
+                                    stdscr.getch()
+                                    continue
+                                # New menu: select a pod to view logs
+                                selected_pod = select_option(
+                                    stdscr,
+                                    "Select a Pod for Logs",
+                                    pods,
+                                    lambda e: e,
+                                    include_back=True,
+                                    search_enabled=True
+                                )
+                                if selected_pod == "Go Back":
+                                    continue
+                                # Run logs command for the selected pod and capture output
+                                ssh_cmd = f"ssh {jumphost} 'kubectl -n {selected_namespace} logs {selected_pod}'"
+                                try:
+                                    result = subprocess.run(ssh_cmd, shell=True, check=True, text=True, stdout=subprocess.PIPE)
+                                    logs_output = result.stdout.strip()
+                                except subprocess.CalledProcessError as e:
+                                    logs_output = f"Error retrieving logs: {e}"
+                                display_text(stdscr, f"Logs for Pod: {selected_pod}", logs_output)
                     else:
-                        # For MariaDB and Cassandra, just show a message (you can expand these as needed)
+                        # Placeholder for MariaDB and Cassandra actions
                         stdscr.clear()
                         stdscr.addstr(2, 2, f"You selected: {selected_option}", curses.A_BOLD)
                         stdscr.addstr(4, 2, "Feature not implemented yet.", curses.A_DIM)
                         stdscr.refresh()
                         stdscr.getch()
-                # End of Action menu; after one loop, return to namespace selection.
-            # End of Namespace selection loop.
+                # End of Action Selection loop: return to namespace selection.
+            # End of Namespace Selection loop: break to environment type selection.
             return  # Exit after finishing one environment type selection
 
 if __name__ == "__main__":
