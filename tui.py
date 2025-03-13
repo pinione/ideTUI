@@ -2,6 +2,7 @@ import curses
 import configparser
 import os
 import subprocess
+import re
 import yaml  # Requires PyYAML installed
 import urllib.parse
 from collections import defaultdict
@@ -170,6 +171,49 @@ def run_kubectl_get_pods(jumphost, context, namespace):
     except subprocess.CalledProcessError:
         return ssh_command, ""
 
+def parse_application_conf(repo_dir):
+    """
+    Opens the file 'secrets/application.conf' in the repo directory,
+    and extracts configuration data for:
+      - database -> reporting
+      - database -> cassandra
+    Returns two dictionaries: (reporting_config, cassandra_config)
+    """
+    conf_path = os.path.join(repo_dir, "secrets", "application.conf")
+    reporting = {}
+    cassandra = {}
+    try:
+        with open(conf_path, "r", encoding="utf-8") as f:
+            content = f.read()
+        # Extract the reporting block inside database { reporting { ... } }
+        rep_match = re.search(r"reporting\s*\{(.*?)\}", content, re.DOTALL)
+        if rep_match:
+            rep_block = rep_match.group(1)
+            for line in rep_block.splitlines():
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    kv = re.match(r"(\w+)\s*=\s*(\".*?\"|\S+)", line)
+                    if kv:
+                        key = kv.group(1)
+                        val = kv.group(2).strip('"')
+                        reporting[key] = val
+        # Extract the cassandra block
+        cass_match = re.search(r"cassandra\s*\{(.*?)\}", content, re.DOTALL)
+        if cass_match:
+            cass_block = cass_match.group(1)
+            for line in cass_block.splitlines():
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    kv = re.match(r"(\w+)\s*=\s*(\".*?\"|\S+)", line)
+                    if kv:
+                        key = kv.group(1)
+                        val = kv.group(2).strip('"')
+                        cassandra[key] = val
+    except Exception as e:
+        reporting = {}
+        cassandra = {}
+    return reporting, cassandra
+
 def display_text(stdscr, title, text):
     """
     Displays a scrollable text window with the given title and text.
@@ -224,6 +268,7 @@ def main(stdscr):
         # Step 2: Environment Type Selection
         while True:
             env_options = environments[selected_env_name]
+            # Now use strip_credentials() to display repo without user/pass
             selected_env_type_tuple = select_option(
                 stdscr,
                 "Select Environment Type",
@@ -250,7 +295,7 @@ def main(stdscr):
                 stdscr.getch()
                 break
 
-            # Step 4: Namespace Selection (proceed immediately)
+            # Step 4: Namespace Selection (proceed immediately after selection)
             while True:
                 selected_namespace = select_option(
                     stdscr,
@@ -263,7 +308,6 @@ def main(stdscr):
                 if selected_namespace == "Go Back":
                     break
 
-                # Directly proceed to Action Selection Menu without pausing
                 # Step 5: Action Selection Menu
                 while True:
                     selected_option = select_option(
@@ -332,25 +376,67 @@ def main(stdscr):
                                 except subprocess.CalledProcessError as e:
                                     logs_output = f"Error retrieving logs: {e}"
                                 display_text(stdscr, f"Logs for Pod: {selected_pod}", f"Command: {ssh_cmd}\n\nLogs:\n{logs_output}")
-                    else:
+                    elif selected_option == "MariaDB":
+                        # MariaDB action: Parse application.conf for reporting and cassandra info
+                        # Look for the file at <repo_dir>/secrets/application.conf
+                        conf_path = os.path.join(repo_dir, "secrets", "application.conf")
+                        try:
+                            with open(conf_path, "r", encoding="utf-8") as f:
+                                content = f.read()
+                        except Exception as e:
+                            content = "Error reading application.conf: " + str(e)
+                        # Parse simple key-value pairs for reporting and cassandra blocks
+                        reporting = {}
+                        cassandra = {}
+                        rep_match = re.search(r"reporting\s*\{(.*?)\}", content, re.DOTALL)
+                        if rep_match:
+                            rep_block = rep_match.group(1)
+                            for line in rep_block.splitlines():
+                                line = line.strip()
+                                if line and not line.startswith("#"):
+                                    kv = re.match(r"(\w+)\s*=\s*(\".*?\"|\S+)", line)
+                                    if kv:
+                                        key = kv.group(1)
+                                        val = kv.group(2).strip('"')
+                                        reporting[key] = val
+                        cass_match = re.search(r"cassandra\s*\{(.*?)\}", content, re.DOTALL)
+                        if cass_match:
+                            cass_block = cass_match.group(1)
+                            for line in cass_block.splitlines():
+                                line = line.strip()
+                                if line and not line.startswith("#"):
+                                    kv = re.match(r"(\w+)\s*=\s*(\".*?\"|\S+)", line)
+                                    if kv:
+                                        key = kv.group(1)
+                                        val = kv.group(2).strip('"')
+                                        cassandra[key] = val
+                        # Build connection commands if data exists
+                        mariadb_cmd = "Not enough data to build MariaDB command."
+                        cassandra_cmd = "Not enough data to build Cassandra command."
+                        if reporting:
+                            # Example MariaDB command
+                            host = reporting.get("host", "localhost")
+                            port = reporting.get("port", "3306")
+                            username = reporting.get("username", "root")
+                            password = reporting.get("password", "")
+                            mariadb_cmd = f"mysql -h {host} -P {port} -u {username} -p{password}"
+                        if cassandra:
+                            host = cassandra.get("host", "localhost")
+                            port = cassandra.get("port", "9042")
+                            username = cassandra.get("username", "")
+                            password = cassandra.get("password", "")
+                            cassandra_cmd = f"cqlsh {host} {port} -u {username} -p {password}"
+                        output = f"MariaDB Connection Command:\n{mariadb_cmd}\n\nCassandra Connection Command:\n{cassandra_cmd}"
+                        display_text(stdscr, "Database Connection Commands", output)
+                    elif selected_option == "Cassandra":
+                        # For Cassandra option, you might want to perform similar actions.
                         stdscr.clear()
-                        stdscr.addstr(2, 2, f"You selected: {selected_option}", curses.A_BOLD)
-                        stdscr.addstr(4, 2, "Feature not implemented yet.", curses.A_DIM)
+                        stdscr.addstr(2, 2, "Cassandra feature not implemented separately.", curses.A_BOLD)
                         stdscr.refresh()
                         stdscr.getch()
                 # End of Action Selection loop: return to Namespace selection.
             # End of Namespace Selection loop: break to Environment Type selection.
             return  # Exit after finishing one environment type selection
-
-def strip_credentials(url):
-    """
-    Strips any username/password from the provided URL.
-    """
-    parts = urllib.parse.urlsplit(url)
-    netloc = parts.hostname or ""
-    if parts.port:
-        netloc += f":{parts.port}"
-    return urllib.parse.urlunsplit((parts.scheme, netloc, parts.path, parts.query, parts.fragment))
 
 if __name__ == "__main__":
     curses.wrapper(main)
