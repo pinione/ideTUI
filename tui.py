@@ -190,12 +190,18 @@ def run_kubectl_get_pods(jumphost, context, namespace):
 def display_text(stdscr, title, text):
     """
     Displays a scrollable text window with the given title and text.
+    Highlights the words:
+      "error" in red,
+      "warning" in yellow,
+      "success" in green.
     Supports:
       - Up/Down arrow keys to scroll line by line.
       - Page Up (KEY_PPAGE) and Page Down (KEY_NPAGE) for page scrolling.
       - End (KEY_END) to jump to the end of the text.
     Any other key exits the display.
     """
+    # Precompile a regex to find keywords
+    pattern = re.compile(r"(error|warning|success)", re.IGNORECASE)
     lines = text.splitlines()
     current_line = 0
     max_rows, max_cols = stdscr.getmaxyx()
@@ -206,7 +212,34 @@ def display_text(stdscr, title, text):
         stdscr.addstr(0, 0, title, curses.A_BOLD | curses.A_UNDERLINE)
         for i in range(display_height):
             if current_line + i < len(lines):
-                stdscr.addstr(i + 1, 0, lines[current_line + i][:max_cols - 1])
+                line = lines[current_line + i]
+                col = 0
+                pos = 0
+                for match in pattern.finditer(line):
+                    start, end = match.span()
+                    # Add text before the keyword
+                    if start > pos:
+                        stdscr.addstr(i + 1, col, line[pos:start][:max_cols - col - 1])
+                        col += len(line[pos:start])
+                    # Determine color for the keyword
+                    word = match.group(0).lower()
+                    if word == "error":
+                        color = curses.color_pair(1)
+                    elif word == "warning":
+                        color = curses.color_pair(2)
+                    elif word == "success":
+                        color = curses.color_pair(3)
+                    else:
+                        color = curses.A_NORMAL
+                    # Add the keyword in color (truncate if needed)
+                    keyword = line[start:end]
+                    if col < max_cols - 1:
+                        stdscr.addstr(i + 1, col, keyword[:max_cols - col - 1], color)
+                        col += len(keyword)
+                    pos = end
+                # Add any remaining text
+                if pos < len(line) and col < max_cols - 1:
+                    stdscr.addstr(i + 1, col, line[pos:][:max_cols - col - 1])
         stdscr.addstr(max_rows - 1, 0, "Up/Down: scroll  PageUp/PageDown: page  End: jump to end  Any other key: exit", curses.A_DIM)
         stdscr.refresh()
         key = stdscr.getch()
@@ -263,6 +296,12 @@ def parse_application_conf(conf_path):
     return reporting, cassandra
 
 def main(stdscr):
+    # Initialize color support
+    curses.start_color()
+    curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)      # error: red
+    curses.init_pair(2, curses.COLOR_YELLOW, curses.COLOR_BLACK)   # warning: yellow
+    curses.init_pair(3, curses.COLOR_GREEN, curses.COLOR_BLACK)    # success: green
+
     environments = load_config()
     if not environments:
         stdscr.addstr(2, 2, "No environments found in config!", curses.A_BOLD)
@@ -306,7 +345,7 @@ def main(stdscr):
                 stdscr.getch()
                 break
 
-            # Step 4: Namespace Selection (immediately proceed after selection)
+            # Step 4: Namespace Selection (proceed immediately)
             while True:
                 selected_namespace = select_option(
                     stdscr,
@@ -388,7 +427,6 @@ def main(stdscr):
                                     logs_output = f"Error retrieving logs: {e}"
                                 display_text(stdscr, f"Logs for Pod: {selected_pod}", f"Command: {ssh_cmd}\n\nLogs:\n{logs_output}")
                     elif selected_option == "MariaDB":
-                        # MariaDB Action: Search for application.conf in secrets for the selected namespace
                         conf_path = find_application_conf(repo_dir, selected_namespace)
                         if not conf_path:
                             output = f"application.conf not found under secrets for namespace '{selected_namespace}'."
