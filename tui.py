@@ -413,7 +413,7 @@ def list_vwan_vpn(stdscr):
         output = result.stdout.strip()
     except subprocess.CalledProcessError as e:
         output = f"Error executing az command: {e}"
-    display_text(stdscr, "vwan - vpn (s2s connections)", f"Command: {az_cmd}\n\nOutput:\n{output}")
+    display_text(stdscr, "vwan - vpn (s2s connections)", f"command: {az_cmd}\n\noutput:\n{output}")
 
 def main(stdscr):
     # Initialize color pairs for highlighting
@@ -456,7 +456,7 @@ def main(stdscr):
                 break
             selected_env_type, selected_git_repo, jumphost_key, context = selected_env_type_tuple
             if jumphost_key in jump_hosts:
-                jump_ip = get_external_ip()  # For simplicity, using external IP as fallback.
+                jump_ip = get_external_ip()  # Using external IP as fallback here
                 jumphost = jump_ip if jump_ip else jumphost_key
             else:
                 jumphost = jumphost_key
@@ -473,118 +473,194 @@ def main(stdscr):
                 stdscr.getch()
                 break
             while True:
-                selected_namespace = select_option(stdscr, "select a kubernetes namespace", namespaces,
-                                                   lambda e: e.lower(), include_back=True, search_enabled=True)
+                selected_namespace = select_option(stdscr, "select a kubernetes namespace", namespaces, lambda e: e.lower(), include_back=True, search_enabled=True)
                 if selected_namespace == "Go Back":
                     break
-                while True:
-                    # Updated Kubernetes actions in lower case.
+                # Main options menu for the selected namespace: three options in lower case.
+                selected_option = select_option(stdscr, "select an option", ["kubernetes", "mariadb", "cassandra"], lambda e: e.lower(), include_back=True)
+                if selected_option == "Go Back":
+                    break
+                if selected_option == "kubernetes":
+                    # Kubernetes actions menu: five lower-case options.
                     kubernetes_actions = ["show pods", "show logs", "describe pod", "show deployments", "scale deployments"]
-                    selected_option = select_option(stdscr, "select an option", kubernetes_actions, lambda e: e, include_back=True)
-                    if selected_option == "Go Back":
-                        break
-                    if selected_option == "show pods":
+                    while True:
+                        action = select_option(stdscr, f"kubernetes actions for '{selected_namespace}'", kubernetes_actions, lambda e: e, include_back=True)
+                        if action == "Go Back":
+                            break
                         if not is_jumphost_available(jumphost):
                             display_text(stdscr, "jumphost unavailable", f"the jumphost {jumphost} is not reachable on port 22.\nplease ensure ssh is available.")
                             continue
-                        cmd_executed, output = run_kubectl_get_pods(jumphost, context, selected_namespace)
-                        if not output:
-                            output = "no pods found or error executing command."
-                        display_text(stdscr, "kubectl get pods output", f"command: {cmd_executed}\n\noutput:\n{output}")
-                    elif selected_option == "show logs":
-                        if not is_jumphost_available(jumphost):
-                            display_text(stdscr, "jumphost unavailable", f"the jumphost {jumphost} is not reachable on port 22.\nplease ensure ssh is available.")
-                            continue
-                        cmd_executed, pods_output = run_kubectl_get_pods(jumphost, context, selected_namespace)
-                        pods = []
-                        for line in pods_output.splitlines():
-                            parts = line.split()
-                            if parts:
-                                pods.append(parts[0])
-                        if not pods:
-                            stdscr.clear()
-                            stdscr.addstr(2, 2, f"command executed: {cmd_executed}", curses.A_BOLD)
-                            stdscr.addstr(3, 2, "no pods found.", curses.A_BOLD)
-                            stdscr.refresh()
-                            stdscr.getch()
-                            continue
-                        selected_pod = select_option(stdscr, "select a pod for logs", pods, lambda e: e.lower(), include_back=True, search_enabled=True)
-                        if selected_pod == "Go Back":
-                            continue
-                        ssh_cmd = f"ssh {jumphost} 'kubectl " + (f"--context {context} " if context else "") + f"-n {selected_namespace} logs {selected_pod}'"
-                        try:
-                            result = subprocess.run(ssh_cmd, shell=True, check=True, text=True, stdout=subprocess.PIPE)
-                            logs_output = result.stdout.strip()
-                        except subprocess.CalledProcessError as e:
-                            logs_output = f"error retrieving logs: {e}"
-                        display_text(stdscr, f"logs for pod: {selected_pod}", f"command: {ssh_cmd}\n\nlogs:\n{logs_output}")
-                    elif selected_option == "describe pod":
-                        if not is_jumphost_available(jumphost):
-                            display_text(stdscr, "jumphost unavailable", f"the jumphost {jumphost} is not reachable on port 22.\nplease ensure ssh is available.")
-                            continue
-                        cmd_executed, pods_output = run_kubectl_get_pods(jumphost, context, selected_namespace)
-                        pods = []
-                        for line in pods_output.splitlines():
-                            parts = line.split()
-                            if parts:
-                                pods.append(parts[0])
-                        if not pods:
-                            display_text(stdscr, "describe pod", "no pods found.")
-                            continue
-                        selected_pod = select_option(stdscr, "select a pod to describe", pods, lambda e: e.lower(), include_back=True, search_enabled=True)
-                        if selected_pod == "Go Back":
-                            continue
-                        ssh_cmd = f"ssh {jumphost} 'kubectl " + (f"--context {context} " if context else "") + f"-n {selected_namespace} describe pod {selected_pod}'"
-                        try:
-                            result = subprocess.run(ssh_cmd, shell=True, check=True, text=True, stdout=subprocess.PIPE)
-                            describe_output = result.stdout.strip()
-                        except subprocess.CalledProcessError as e:
-                            describe_output = f"error retrieving description: {e}"
-                        display_text(stdscr, f"describe pod: {selected_pod}", f"command: {ssh_cmd}\n\noutput:\n{describe_output}")
-                    elif selected_option == "show deployments":
-                        if not is_jumphost_available(jumphost):
-                            display_text(stdscr, "jumphost unavailable", f"the jumphost {jumphost} is not reachable on port 22.\nplease ensure ssh is available.")
-                            continue
-                        ssh_cmd = f"ssh {jumphost} 'kubectl " + (f"--context {context} " if context else "") + f"-n {selected_namespace} get deploy -o wide'"
-                        try:
-                            result = subprocess.run(ssh_cmd, shell=True, check=True, text=True, stdout=subprocess.PIPE)
-                            deploys_output = result.stdout.strip()
-                        except subprocess.CalledProcessError as e:
-                            deploys_output = f"error retrieving deployments: {e}"
-                        display_text(stdscr, f"deployments in '{selected_namespace}'", f"command: {ssh_cmd}\n\noutput:\n{deploys_output}")
-                    elif selected_option == "scale deployments":
-                        if not is_jumphost_available(jumphost):
-                            display_text(stdscr, "jumphost unavailable", f"the jumphost {jumphost} is not reachable on port 22.\nplease ensure ssh is available.")
-                            continue
-                        ssh_cmd = f"ssh {jumphost} 'kubectl " + (f"--context {context} " if context else "") + f"-n {selected_namespace} get deploy --no-headers'"
-                        try:
-                            result = subprocess.run(ssh_cmd, shell=True, check=True, text=True, stdout=subprocess.PIPE)
-                            deploys_output = result.stdout.strip()
-                        except subprocess.CalledProcessError as e:
-                            deploys_output = f"error retrieving deployments: {e}"
-                        deploy_names = []
-                        for line in deploys_output.splitlines():
-                            parts = line.split()
-                            if parts:
-                                deploy_names.append(parts[0])
-                        if not deploy_names:
-                            display_text(stdscr, "scale deployments", "no deployments found.")
-                            continue
-                        selected_deploy = select_option(stdscr, "select a deployment to scale", deploy_names, lambda e: e.lower(), include_back=True, search_enabled=True)
-                        if selected_deploy == "Go Back":
-                            continue
-                        replicas = get_user_input(stdscr, "enter desired number of replicas: ")
-                        ssh_cmd_scale = f"ssh {jumphost} 'kubectl " + (f"--context {context} " if context else "") + f"-n {selected_namespace} scale deployment {selected_deploy} --replicas={replicas}'"
-                        try:
-                            result = subprocess.run(ssh_cmd_scale, shell=True, check=True, text=True, stdout=subprocess.PIPE)
-                            scale_output = result.stdout.strip()
-                        except subprocess.CalledProcessError as e:
-                            scale_output = f"error scaling deployment: {e}"
-                        display_text(stdscr, f"scale deployment: {selected_deploy}", f"command: {ssh_cmd_scale}\n\noutput:\n{scale_output}")
-                    # End of Kubernetes actions.
+                        if action == "show pods":
+                            cmd_executed, output = run_kubectl_get_pods(jumphost, context, selected_namespace)
+                            if not output:
+                                output = "no pods found or error executing command."
+                            display_text(stdscr, "kubectl get pods output", f"command: {cmd_executed}\n\noutput:\n{output}")
+                        elif action == "show logs":
+                            cmd_executed, pods_output = run_kubectl_get_pods(jumphost, context, selected_namespace)
+                            pods = []
+                            for line in pods_output.splitlines():
+                                parts = line.split()
+                                if parts:
+                                    pods.append(parts[0])
+                            if not pods:
+                                display_text(stdscr, "show logs", "no pods found.")
+                                continue
+                            selected_pod = select_option(stdscr, "select a pod for logs", pods, lambda e: e.lower(), include_back=True, search_enabled=True)
+                            if selected_pod == "Go Back":
+                                continue
+                            ssh_cmd = f"ssh {jumphost} 'kubectl " + (f"--context {context} " if context else "") + f"-n {selected_namespace} logs {selected_pod}'"
+                            try:
+                                result = subprocess.run(ssh_cmd, shell=True, check=True, text=True, stdout=subprocess.PIPE)
+                                logs_output = result.stdout.strip()
+                            except subprocess.CalledProcessError as e:
+                                logs_output = f"error retrieving logs: {e}"
+                            display_text(stdscr, f"logs for pod: {selected_pod}", f"command: {ssh_cmd}\n\nlogs:\n{logs_output}")
+                        elif action == "describe pod":
+                            cmd_executed, pods_output = run_kubectl_get_pods(jumphost, context, selected_namespace)
+                            pods = []
+                            for line in pods_output.splitlines():
+                                parts = line.split()
+                                if parts:
+                                    pods.append(parts[0])
+                            if not pods:
+                                display_text(stdscr, "describe pod", "no pods found.")
+                                continue
+                            selected_pod = select_option(stdscr, "select a pod to describe", pods, lambda e: e.lower(), include_back=True, search_enabled=True)
+                            if selected_pod == "Go Back":
+                                continue
+                            ssh_cmd = f"ssh {jumphost} 'kubectl " + (f"--context {context} " if context else "") + f"-n {selected_namespace} describe pod {selected_pod}'"
+                            try:
+                                result = subprocess.run(ssh_cmd, shell=True, check=True, text=True, stdout=subprocess.PIPE)
+                                describe_output = result.stdout.strip()
+                            except subprocess.CalledProcessError as e:
+                                describe_output = f"error retrieving description: {e}"
+                            display_text(stdscr, f"describe pod: {selected_pod}", f"command: {ssh_cmd}\n\noutput:\n{describe_output}")
+                        elif action == "show deployments":
+                            ssh_cmd = f"ssh {jumphost} 'kubectl " + (f"--context {context} " if context else "") + f"-n {selected_namespace} get deploy -o wide'"
+                            try:
+                                result = subprocess.run(ssh_cmd, shell=True, check=True, text=True, stdout=subprocess.PIPE)
+                                deploys_output = result.stdout.strip()
+                            except subprocess.CalledProcessError as e:
+                                deploys_output = f"error retrieving deployments: {e}"
+                            display_text(stdscr, f"deployments in '{selected_namespace}'", f"command: {ssh_cmd}\n\noutput:\n{deploys_output}")
+                        elif action == "scale deployments":
+                            ssh_cmd = f"ssh {jumphost} 'kubectl " + (f"--context {context} " if context else "") + f"-n {selected_namespace} get deploy --no-headers'"
+                            try:
+                                result = subprocess.run(ssh_cmd, shell=True, check=True, text=True, stdout=subprocess.PIPE)
+                                deploys_output = result.stdout.strip()
+                            except subprocess.CalledProcessError as e:
+                                deploys_output = f"error retrieving deployments: {e}"
+                            deploy_names = []
+                            for line in deploys_output.splitlines():
+                                parts = line.split()
+                                if parts:
+                                    deploy_names.append(parts[0])
+                            if not deploy_names:
+                                display_text(stdscr, "scale deployments", "no deployments found.")
+                                continue
+                            selected_deploy = select_option(stdscr, "select a deployment to scale", deploy_names, lambda e: e.lower(), include_back=True, search_enabled=True)
+                            if selected_deploy == "Go Back":
+                                continue
+                            replicas = get_user_input(stdscr, "enter desired number of replicas: ")
+                            ssh_cmd_scale = f"ssh {jumphost} 'kubectl " + (f"--context {context} " if context else "") + f"-n {selected_namespace} scale deployment {selected_deploy} --replicas={replicas}'"
+                            try:
+                                result = subprocess.run(ssh_cmd_scale, shell=True, check=True, text=True, stdout=subprocess.PIPE)
+                                scale_output = result.stdout.strip()
+                            except subprocess.CalledProcessError as e:
+                                scale_output = f"error scaling deployment: {e}"
+                            display_text(stdscr, f"scale deployment: {selected_deploy}", f"command: {ssh_cmd_scale}\n\noutput:\n{scale_output}")
+                    elif selected_option == "mariadb":
+                        conf_path = find_application_conf(repo_dir, selected_namespace)
+                        if not conf_path:
+                            smdp_path = find_smdp_yaml(repo_dir, selected_namespace)
+                            if smdp_path:
+                                env_dict = parse_smdp_yaml(smdp_path)
+                                reporting = {
+                                    "host": env_dict.get("DB_HOST", "localhost"),
+                                    "port": env_dict.get("DB_PORT", "3306"),
+                                    "username": env_dict.get("DB_USER", "root"),
+                                    "password": env_dict.get("DB_PASSWD", ""),
+                                    "dbname": env_dict.get("DB_NAME", "")
+                                }
+                                cassandra = {
+                                    "host": env_dict.get("CASSANDRA_HOST1", "localhost"),
+                                    "port": env_dict.get("CASSANDRA_PORT", "9042"),
+                                    "keyspace": env_dict.get("CASSANDRA_KEYSPACE", ""),
+                                    "username": env_dict.get("CASSANDRA_USER", ""),
+                                    "password": env_dict.get("CASSANDRA_PASSWD", "")
+                                }
+                                source = "smdp.yaml"
+                            else:
+                                reporting = {}
+                                cassandra = {}
+                                source = None
+                        else:
+                            source = "application.conf"
+                            try:
+                                with open(conf_path, "r", encoding="utf-8") as f:
+                                    content = f.read()
+                            except Exception as e:
+                                content = "error reading application.conf: " + str(e)
+                            reporting = {}
+                            cassandra = {}
+                            rep_match = re.search(r"reporting\s*\{(.*?)\}", content, re.DOTALL)
+                            if rep_match:
+                                rep_block = rep_match.group(1)
+                                for line in rep_block.splitlines():
+                                    line = line.strip()
+                                    if line and not line.startswith("#"):
+                                        kv = re.match(r"(\w+)\s*=\s*(\".*?\"|\S+)", line)
+                                        if kv:
+                                            key = kv.group(1)
+                                            val = kv.group(2).strip('"')
+                                            reporting[key] = val
+                            cass_match = re.search(r"cassandra\s*\{(.*?)\}", content, re.DOTALL)
+                            if cass_match:
+                                cass_block = cass_match.group(1)
+                                for line in cass_block.splitlines():
+                                    line = line.strip()
+                                    if line and not line.startswith("#"):
+                                        kv = re.match(r"(\w+)\s*=\s*(\".*?\"|\S+)", line)
+                                        if kv:
+                                            key = kv.group(1)
+                                            if key.lower() == "hosts":
+                                                val = kv.group(2).strip('"')
+                                                host = val.split(",")[0].strip() if val else "localhost"
+                                                cassandra["host"] = host
+                                            else:
+                                                val = kv.group(2).strip('"')
+                                                cassandra[key] = val
+                            source = "application.conf"
+                        if not source:
+                            output = f"neither application.conf nor smdp.yaml found for namespace '{selected_namespace}'."
+                        else:
+                            mariadb_cmd = "not enough data to build mariadb command."
+                            cassandra_cmd = "not enough data to build cassandra command."
+                            if reporting:
+                                host = reporting.get("host", "localhost")
+                                port = reporting.get("port", "3306")
+                                username = reporting.get("username", "root")
+                                password = reporting.get("password", "")
+                                dbname = reporting.get("dbname", "")
+                                mariadb_cmd = f"mysql -h {host} -P {port} -u {username} -p{password} {dbname}"
+                            if cassandra:
+                                host = cassandra.get("host", "localhost")
+                                port = cassandra.get("port", "9042")
+                                keyspace = cassandra.get("keyspace", "")
+                                username = cassandra.get("username", "")
+                                password = cassandra.get("password", "")
+                                cassandra_cmd = f"cqlsh {host} {port} -u {username} -p {password} {keyspace}"
+                            output = (f"source: {source}\n\nmariadb connection command:\n{mariadb_cmd}\n\n"
+                                      f"cassandra connection command:\n{cassandra_cmd}")
+                        display_text(stdscr, "database connection commands", output)
+                    elif selected_option == "cassandra":
+                        stdscr.clear()
+                        stdscr.addstr(2, 2, "cassandra feature not implemented separately.", curses.A_BOLD)
+                        stdscr.refresh()
+                        stdscr.getch()
                 # End of Action Selection loop.
             # End of Namespace Selection loop.
-            return  # Exit after one environment type selection.
+            return  # Exit after finishing one environment type selection.
             
 if __name__ == "__main__":
     curses.wrapper(main)
