@@ -7,6 +7,7 @@ import yaml  # Requires PyYAML installed
 import urllib.parse
 import socket
 import json
+import textwrap
 from collections import defaultdict
 
 CONFIG_FILE = "config.ini"
@@ -163,7 +164,6 @@ def select_option(stdscr, title, options, get_label, include_back=False, include
         elif search_enabled and (32 <= key <= 126):
             search_query += chr(key)
             filtered_options = [opt for opt in original_options if search_query.lower() in get_label(opt).lower()]
-            # If no options match, reset the search.
             if not filtered_options:
                 filtered_options = original_options
                 search_query = ""
@@ -172,7 +172,6 @@ def select_option(stdscr, title, options, get_label, include_back=False, include
         elif search_enabled and key in [curses.KEY_BACKSPACE, 127, 8]:
             search_query = search_query[:-1]
             filtered_options = [opt for opt in original_options if search_query.lower() in get_label(opt).lower()]
-            # If no options match, reset the search.
             if not filtered_options:
                 filtered_options = original_options
                 search_query = ""
@@ -307,11 +306,24 @@ def display_text(stdscr, title, text):
     Displays a scrollable text window with the given title and text.
     Highlights "error" in red, "warning" in yellow, and "success" in green.
     Supports scrolling, page navigation, and '/' for search.
+    
+    This version wraps each line (using textwrap) so that long output (e.g. az rest output)
+    fits the screen width.
     """
+    import textwrap
     pattern = re.compile(r"(error|warning|success)", re.IGNORECASE)
-    lines = text.splitlines()
-    current_line = 0
+    # Split the raw text into lines and wrap each line based on the screen width.
+    raw_lines = text.splitlines()
     max_rows, max_cols = stdscr.getmaxyx()
+    # Wrap lines with a little padding (max_cols - 2)
+    lines = []
+    for line in raw_lines:
+        wrapped = textwrap.wrap(line, width=max_cols - 2)
+        if wrapped:
+            lines.extend(wrapped)
+        else:
+            lines.append(line)
+    current_line = 0
     display_height = max_rows - 2
 
     while True:
