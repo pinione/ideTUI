@@ -111,7 +111,7 @@ def run_jit(jump_params, external_ip):
 def select_option(stdscr, title, options, get_label, include_back=False, include_exit=False, search_enabled=False, skip_items=None):
     """
     Displays a scrollable selection menu.
-    Optional skip_items is a list of items that are visible but not selectable.
+    Optional parameter skip_items is a list of items that are visible but not selectable.
     """
     skip_items = skip_items or []
     curses.curs_set(0)
@@ -265,7 +265,7 @@ def is_jumphost_available(jumphost):
         return False
 
 def connect_and_run_kubectl(jumphost, context, namespace, command):
-    """SSH to jumphost and run a kubectl command."""
+    """SSH to jumphost and run a kubectl command in the given namespace."""
     context_cmd = f"--context {context} " if context else ""
     kubectl_cmd = f"kubectl {context_cmd}-n {namespace} {command}"
     ssh_command = f"ssh {jumphost} '{kubectl_cmd}'"
@@ -413,7 +413,7 @@ def list_vwan_vpn(stdscr):
         output = result.stdout.strip()
     except subprocess.CalledProcessError as e:
         output = f"Error executing az command: {e}"
-    display_text(stdscr, "vWAN - VPN (S2S Connections)", f"Command: {az_cmd}\n\nOutput:\n{output}")
+    display_text(stdscr, "vwan - vpn (s2s connections)", f"Command: {az_cmd}\n\nOutput:\n{output}")
 
 def main(stdscr):
     # Initialize color pairs for highlighting
@@ -425,76 +425,75 @@ def main(stdscr):
     environments = load_config()
     jump_hosts = load_jump_hosts()
     
-    # Build main menu with a divider between environments and "Jumphost JIT"
+    # Build main menu with a divider between environments and "jumphost jit"
     env_list = list(environments.keys())
     divider = "--------------------"
-    main_menu = env_list + [divider, "Jumphost JIT"]
+    main_menu = env_list + [divider, "jumphost jit"]
 
     while True:
-        selected_main = select_option(stdscr, "Select Environment", main_menu, lambda e: e, include_exit=True, skip_items=[divider])
+        selected_main = select_option(stdscr, "select environment", main_menu, lambda e: e, include_exit=True, skip_items=[divider])
         if selected_main == "Exit":
             return
-        if selected_main == "Jumphost JIT":
+        if selected_main == "jumphost jit":
             jump_keys = list(jump_hosts.keys())
-            selected_jump = select_option(stdscr, "Select Jump Host", jump_keys, lambda e: f"{e} ({jump_hosts[e][4]})", include_back=True)
+            selected_jump = select_option(stdscr, "select jump host", jump_keys, lambda e: f"{e} ({jump_hosts[e][4]})", include_back=True)
             if selected_jump == "Go Back":
                 continue
             external_ip = get_external_ip()
             if not external_ip:
-                display_text(stdscr, "External IP Error", "Unable to retrieve external IP.")
+                display_text(stdscr, "external ip error", "unable to retrieve external ip.")
                 continue
             az_cmd, output = run_jit(jump_hosts[selected_jump], external_ip)
-            display_text(stdscr, f"JIT for Jump Host '{selected_jump}'", f"Command: {az_cmd}\n\nOutput:\n{output}")
+            display_text(stdscr, f"jit for jump host '{selected_jump}'", f"command: {az_cmd}\n\noutput:\n{output}")
             continue
 
         # Process selected environment normally.
         while True:
             env_options = environments[selected_main]
-            selected_env_type_tuple = select_option(stdscr, "Select Environment Type", env_options,
-                                                      lambda e: f"{e[0]} ({strip_credentials(e[1])})", include_back=True)
+            selected_env_type_tuple = select_option(stdscr, "select environment type", env_options,
+                                                      lambda e: f"{e[0].lower()} ({strip_credentials(e[1]).lower()})", include_back=True)
             if selected_env_type_tuple == "Go Back":
                 break
             selected_env_type, selected_git_repo, jumphost_key, context = selected_env_type_tuple
             if jumphost_key in jump_hosts:
-                # Here, you could also call a function like get_jump_host_ip() if desired.
                 jump_ip = get_external_ip()  # For simplicity, using external IP as fallback.
                 jumphost = jump_ip if jump_ip else jumphost_key
             else:
                 jumphost = jumphost_key
 
             stdscr.clear()
-            stdscr.addstr(2, 2, "Cloning or pulling repository...", curses.A_BOLD)
+            stdscr.addstr(2, 2, "cloning or pulling repository...", curses.A_BOLD)
             stdscr.refresh()
             repo_dir = clone_or_pull_repo(selected_main, selected_env_type, selected_git_repo)
             namespaces = find_kubernetes_namespaces(repo_dir)
             if not namespaces:
                 stdscr.clear()
-                stdscr.addstr(2, 2, "No Kubernetes namespaces found in repo.", curses.A_BOLD)
+                stdscr.addstr(2, 2, "no kubernetes namespaces found in repo.", curses.A_BOLD)
                 stdscr.refresh()
                 stdscr.getch()
                 break
             while True:
-                selected_namespace = select_option(stdscr, "Select a Kubernetes Namespace", namespaces,
-                                                   lambda e: e, include_back=True, search_enabled=True)
+                selected_namespace = select_option(stdscr, "select a kubernetes namespace", namespaces,
+                                                   lambda e: e.lower(), include_back=True, search_enabled=True)
                 if selected_namespace == "Go Back":
                     break
                 while True:
-                    # Updated Kubernetes actions: now five options.
-                    kubernetes_actions = ["Show Pods", "Show Logs", "Describe Pod", "Display Deploys", "Scale Deploy"]
-                    selected_option = select_option(stdscr, "Select an option", kubernetes_actions, lambda e: e, include_back=True)
+                    # Updated Kubernetes actions in lower case.
+                    kubernetes_actions = ["show pods", "show logs", "describe pod", "show deployments", "scale deployments"]
+                    selected_option = select_option(stdscr, "select an option", kubernetes_actions, lambda e: e, include_back=True)
                     if selected_option == "Go Back":
                         break
-                    if selected_option == "Show Pods":
+                    if selected_option == "show pods":
                         if not is_jumphost_available(jumphost):
-                            display_text(stdscr, "Jumphost Unavailable", f"The jumphost {jumphost} is not reachable on port 22.\nPlease ensure SSH is available.")
+                            display_text(stdscr, "jumphost unavailable", f"the jumphost {jumphost} is not reachable on port 22.\nplease ensure ssh is available.")
                             continue
                         cmd_executed, output = run_kubectl_get_pods(jumphost, context, selected_namespace)
                         if not output:
-                            output = "No pods found or error executing command."
-                        display_text(stdscr, "Kubectl Get Pods Output", f"Command: {cmd_executed}\n\nOutput:\n{output}")
-                    elif selected_option == "Show Logs":
+                            output = "no pods found or error executing command."
+                        display_text(stdscr, "kubectl get pods output", f"command: {cmd_executed}\n\noutput:\n{output}")
+                    elif selected_option == "show logs":
                         if not is_jumphost_available(jumphost):
-                            display_text(stdscr, "Jumphost Unavailable", f"The jumphost {jumphost} is not reachable on port 22.\nPlease ensure SSH is available.")
+                            display_text(stdscr, "jumphost unavailable", f"the jumphost {jumphost} is not reachable on port 22.\nplease ensure ssh is available.")
                             continue
                         cmd_executed, pods_output = run_kubectl_get_pods(jumphost, context, selected_namespace)
                         pods = []
@@ -504,12 +503,12 @@ def main(stdscr):
                                 pods.append(parts[0])
                         if not pods:
                             stdscr.clear()
-                            stdscr.addstr(2, 2, f"Command executed: {cmd_executed}", curses.A_BOLD)
-                            stdscr.addstr(3, 2, "No pods found.", curses.A_BOLD)
+                            stdscr.addstr(2, 2, f"command executed: {cmd_executed}", curses.A_BOLD)
+                            stdscr.addstr(3, 2, "no pods found.", curses.A_BOLD)
                             stdscr.refresh()
                             stdscr.getch()
                             continue
-                        selected_pod = select_option(stdscr, "Select a Pod for Logs", pods, lambda e: e, include_back=True, search_enabled=True)
+                        selected_pod = select_option(stdscr, "select a pod for logs", pods, lambda e: e.lower(), include_back=True, search_enabled=True)
                         if selected_pod == "Go Back":
                             continue
                         ssh_cmd = f"ssh {jumphost} 'kubectl " + (f"--context {context} " if context else "") + f"-n {selected_namespace} logs {selected_pod}'"
@@ -517,13 +516,12 @@ def main(stdscr):
                             result = subprocess.run(ssh_cmd, shell=True, check=True, text=True, stdout=subprocess.PIPE)
                             logs_output = result.stdout.strip()
                         except subprocess.CalledProcessError as e:
-                            logs_output = f"Error retrieving logs: {e}"
-                        display_text(stdscr, f"Logs for Pod: {selected_pod}", f"Command: {ssh_cmd}\n\nLogs:\n{logs_output}")
-                    elif selected_option == "Describe Pod":
+                            logs_output = f"error retrieving logs: {e}"
+                        display_text(stdscr, f"logs for pod: {selected_pod}", f"command: {ssh_cmd}\n\nlogs:\n{logs_output}")
+                    elif selected_option == "describe pod":
                         if not is_jumphost_available(jumphost):
-                            display_text(stdscr, "Jumphost Unavailable", f"The jumphost {jumphost} is not reachable on port 22.\nPlease ensure SSH is available.")
+                            display_text(stdscr, "jumphost unavailable", f"the jumphost {jumphost} is not reachable on port 22.\nplease ensure ssh is available.")
                             continue
-                        # List pods to let user pick one
                         cmd_executed, pods_output = run_kubectl_get_pods(jumphost, context, selected_namespace)
                         pods = []
                         for line in pods_output.splitlines():
@@ -531,9 +529,9 @@ def main(stdscr):
                             if parts:
                                 pods.append(parts[0])
                         if not pods:
-                            display_text(stdscr, "Describe Pod", "No pods found.")
+                            display_text(stdscr, "describe pod", "no pods found.")
                             continue
-                        selected_pod = select_option(stdscr, "Select a Pod to Describe", pods, lambda e: e, include_back=True, search_enabled=True)
+                        selected_pod = select_option(stdscr, "select a pod to describe", pods, lambda e: e.lower(), include_back=True, search_enabled=True)
                         if selected_pod == "Go Back":
                             continue
                         ssh_cmd = f"ssh {jumphost} 'kubectl " + (f"--context {context} " if context else "") + f"-n {selected_namespace} describe pod {selected_pod}'"
@@ -541,54 +539,52 @@ def main(stdscr):
                             result = subprocess.run(ssh_cmd, shell=True, check=True, text=True, stdout=subprocess.PIPE)
                             describe_output = result.stdout.strip()
                         except subprocess.CalledProcessError as e:
-                            describe_output = f"Error retrieving description: {e}"
-                        display_text(stdscr, f"Describe Pod: {selected_pod}", f"Command: {ssh_cmd}\n\nOutput:\n{describe_output}")
-                    elif selected_option == "Display Deploys":
+                            describe_output = f"error retrieving description: {e}"
+                        display_text(stdscr, f"describe pod: {selected_pod}", f"command: {ssh_cmd}\n\noutput:\n{describe_output}")
+                    elif selected_option == "show deployments":
                         if not is_jumphost_available(jumphost):
-                            display_text(stdscr, "Jumphost Unavailable", f"The jumphost {jumphost} is not reachable on port 22.\nPlease ensure SSH is available.")
+                            display_text(stdscr, "jumphost unavailable", f"the jumphost {jumphost} is not reachable on port 22.\nplease ensure ssh is available.")
                             continue
                         ssh_cmd = f"ssh {jumphost} 'kubectl " + (f"--context {context} " if context else "") + f"-n {selected_namespace} get deploy -o wide'"
                         try:
                             result = subprocess.run(ssh_cmd, shell=True, check=True, text=True, stdout=subprocess.PIPE)
                             deploys_output = result.stdout.strip()
                         except subprocess.CalledProcessError as e:
-                            deploys_output = f"Error retrieving deployments: {e}"
-                        display_text(stdscr, f"Deployments in '{selected_namespace}'", f"Command: {ssh_cmd}\n\nOutput:\n{deploys_output}")
-                    elif selected_option == "Scale Deploy":
+                            deploys_output = f"error retrieving deployments: {e}"
+                        display_text(stdscr, f"deployments in '{selected_namespace}'", f"command: {ssh_cmd}\n\noutput:\n{deploys_output}")
+                    elif selected_option == "scale deployments":
                         if not is_jumphost_available(jumphost):
-                            display_text(stdscr, "Jumphost Unavailable", f"The jumphost {jumphost} is not reachable on port 22.\nPlease ensure SSH is available.")
+                            display_text(stdscr, "jumphost unavailable", f"the jumphost {jumphost} is not reachable on port 22.\nplease ensure ssh is available.")
                             continue
-                        # List deployments
                         ssh_cmd = f"ssh {jumphost} 'kubectl " + (f"--context {context} " if context else "") + f"-n {selected_namespace} get deploy --no-headers'"
                         try:
                             result = subprocess.run(ssh_cmd, shell=True, check=True, text=True, stdout=subprocess.PIPE)
                             deploys_output = result.stdout.strip()
                         except subprocess.CalledProcessError as e:
-                            deploys_output = f"Error retrieving deployments: {e}"
+                            deploys_output = f"error retrieving deployments: {e}"
                         deploy_names = []
                         for line in deploys_output.splitlines():
                             parts = line.split()
                             if parts:
                                 deploy_names.append(parts[0])
                         if not deploy_names:
-                            display_text(stdscr, "Scale Deploy", "No deployments found.")
+                            display_text(stdscr, "scale deployments", "no deployments found.")
                             continue
-                        selected_deploy = select_option(stdscr, "Select a Deployment to Scale", deploy_names, lambda e: e, include_back=True, search_enabled=True)
+                        selected_deploy = select_option(stdscr, "select a deployment to scale", deploy_names, lambda e: e.lower(), include_back=True, search_enabled=True)
                         if selected_deploy == "Go Back":
                             continue
-                        # Prompt for number of replicas
-                        replicas = get_user_input(stdscr, "Enter desired number of replicas: ")
+                        replicas = get_user_input(stdscr, "enter desired number of replicas: ")
                         ssh_cmd_scale = f"ssh {jumphost} 'kubectl " + (f"--context {context} " if context else "") + f"-n {selected_namespace} scale deployment {selected_deploy} --replicas={replicas}'"
                         try:
                             result = subprocess.run(ssh_cmd_scale, shell=True, check=True, text=True, stdout=subprocess.PIPE)
                             scale_output = result.stdout.strip()
                         except subprocess.CalledProcessError as e:
-                            scale_output = f"Error scaling deployment: {e}"
-                        display_text(stdscr, f"Scale Deployment: {selected_deploy}", f"Command: {ssh_cmd_scale}\n\nOutput:\n{scale_output}")
-                    # End of Kubernetes actions options.
+                            scale_output = f"error scaling deployment: {e}"
+                        display_text(stdscr, f"scale deployment: {selected_deploy}", f"command: {ssh_cmd_scale}\n\noutput:\n{scale_output}")
+                    # End of Kubernetes actions.
                 # End of Action Selection loop.
             # End of Namespace Selection loop.
-            return  # Exit after finishing one environment type selection.
+            return  # Exit after one environment type selection.
             
 if __name__ == "__main__":
     curses.wrapper(main)
