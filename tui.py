@@ -40,7 +40,7 @@ def load_config():
 def load_jump_hosts():
     """
     Loads the [jump-hosts] section.
-    Each jump host is defined with: subscription, resourcegroup, vm name, localization.
+    Each jump host is defined with: subscription, resourcegroup, vm name, localization, description.
     Returns a dictionary mapping jump host key to a tuple.
     """
     config = configparser.ConfigParser()
@@ -49,9 +49,13 @@ def load_jump_hosts():
     if "jump-hosts" in config:
         for key, value in config["jump-hosts"].items():
             parts = [p.strip() for p in value.split(",")]
-            if len(parts) >= 4:
+            if len(parts) >= 5:
+                subscription, resourcegroup, vm_name, localization, description = parts[:5]
+                jump_hosts[key] = (subscription, resourcegroup, vm_name, localization, description)
+            elif len(parts) >= 4:
+                # Fallback: if description not provided, use an empty string.
                 subscription, resourcegroup, vm_name, localization = parts[:4]
-                jump_hosts[key] = (subscription, resourcegroup, vm_name, localization)
+                jump_hosts[key] = (subscription, resourcegroup, vm_name, localization, "")
     return jump_hosts
 
 def get_external_ip():
@@ -68,7 +72,7 @@ def build_jit_payload(jump_params, external_ip):
     Constructs a JSON payload for initiating JIT access.
     Port number is set to 22.
     """
-    subscription, resourcegroup, vm_name, localization = jump_params
+    subscription, resourcegroup, vm_name, localization, _ = jump_params
     vm_id = f"/subscriptions/{subscription}/resourceGroups/{resourcegroup}/providers/Microsoft.Compute/virtualMachines/{vm_name}"
     payload = {
         "virtualMachines": [
@@ -90,9 +94,9 @@ def build_jit_payload(jump_params, external_ip):
 def run_jit(jump_params, external_ip):
     """
     Uses az rest to initiate JIT access.
-    Returns the command string and its output.
+    Returns the command and its output.
     """
-    subscription, resourcegroup, vm_name, localization = jump_params
+    subscription, resourcegroup, vm_name, localization, _ = jump_params
     url = (f"https://management.azure.com/subscriptions/{subscription}/resourceGroups/{resourcegroup}/"
            f"providers/Microsoft.Security/locations/{localization}/jitNetworkAccessPolicies/default/initiate"
            "?api-version=2020-01-01")
@@ -108,7 +112,7 @@ def run_jit(jump_params, external_ip):
 def select_option(stdscr, title, options, get_label, include_back=False, include_exit=False, search_enabled=False, skip_items=None):
     """
     Displays a scrollable selection menu.
-    Optional parameter skip_items is a list of items that should be visible but not selectable.
+    Optional parameter skip_items is a list of items that are visible but not selectable.
     """
     skip_items = skip_items or []
     curses.curs_set(0)
@@ -147,18 +151,17 @@ def select_option(stdscr, title, options, get_label, include_back=False, include
         key = stdscr.getch()
         if key == curses.KEY_UP and current_row > 0:
             current_row -= 1
+            # Skip any item in skip_items
+            while filtered_options[current_row] in skip_items and current_row > 0:
+                current_row -= 1
         elif key == curses.KEY_DOWN and current_row < len(filtered_options) - 1:
             current_row += 1
+            while filtered_options[current_row] in skip_items and current_row < len(filtered_options) - 1:
+                current_row += 1
         elif key in [curses.KEY_ENTER, 10, 13]:
-            # Auto-skip items in skip_items
             if filtered_options[current_row] in skip_items:
-                # Try moving down if possible; else up.
-                if current_row < len(filtered_options) - 1:
-                    current_row += 1
-                    continue
-                elif current_row > 0:
-                    current_row -= 1
-                    continue
+                # Automatically skip if a skip_item is selected
+                continue
             return filtered_options[current_row]
         elif search_enabled and (32 <= key <= 126):
             search_query += chr(key)
@@ -265,7 +268,7 @@ def is_jumphost_available(jumphost):
         return False
 
 def connect_and_run_kubectl(jumphost, context, namespace, command):
-    """SSH to jumphost and run a kubectl command in the given namespace."""
+    """SSH to jumphost and run a kubectl command."""
     context_cmd = f"--context {context} " if context else ""
     kubectl_cmd = f"kubectl {context_cmd}-n {namespace} {command}"
     ssh_command = f"ssh {jumphost} '{kubectl_cmd}'"
@@ -416,7 +419,7 @@ def list_vwan_vpn(stdscr):
     display_text(stdscr, "vWAN - VPN (S2S Connections)", f"Command: {az_cmd}\n\nOutput:\n{output}")
 
 def main(stdscr):
-    # Initialize color pairs for highlighting
+    # Initialize color pairs
     curses.start_color()
     curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
     curses.init_pair(2, curses.COLOR_YELLOW, curses.COLOR_BLACK)
@@ -425,7 +428,7 @@ def main(stdscr):
     environments = load_config()
     jump_hosts = load_jump_hosts()
     
-    # Build main menu with a divider (non-selectable)
+    # Build main menu with a divider between environment names and "Jumphost JIT"
     env_list = list(environments.keys())
     divider = "--------------------"
     main_menu = env_list + [divider, "Jumphost JIT"]
@@ -436,7 +439,7 @@ def main(stdscr):
             return
         if selected_main == "Jumphost JIT":
             jump_keys = list(jump_hosts.keys())
-            selected_jump = select_option(stdscr, "Select Jump Host", jump_keys, lambda e: e, include_back=True)
+            selected_jump = select_option(stdscr, "Select Jump Host", jump_keys, lambda e: f"{e} ({jump_hosts[e][4]})", include_back=True)
             if selected_jump == "Go Back":
                 continue
             external_ip = get_external_ip()
@@ -456,9 +459,9 @@ def main(stdscr):
                 break
             selected_env_type, selected_git_repo, jumphost_key, context = selected_env_type_tuple
             if jumphost_key in jump_hosts:
-                jump_ip = get_external_ip() if not get_external_ip() is None else get_external_ip()  # fallback
-                # Use jump host definition if available
-                jump_ip = get_external_ip()  # Alternatively, call get_jump_host_ip(jumphost_key, jump_hosts)
+                # For jump hosts defined in config, you might want to retrieve the public IP.
+                # Here we simply call get_external_ip() as a fallback.
+                jump_ip = get_external_ip()
                 jumphost = jump_ip if jump_ip else jumphost_key
             else:
                 jumphost = jumphost_key
@@ -491,7 +494,8 @@ def main(stdscr):
                             if kubernetes_option == "Go Back":
                                 break
                             if not is_jumphost_available(jumphost):
-                                display_text(stdscr, "Jumphost Unavailable", f"The jumphost {jumphost} is not reachable on port 22.\nPlease ensure SSH is available.")
+                                display_text(stdscr, "Jumphost Unavailable",
+                                             f"The jumphost {jumphost} is not reachable on port 22.\nPlease ensure SSH is available.")
                                 continue
                             if kubernetes_option == "Show Pods":
                                 cmd_executed, output = run_kubectl_get_pods(jumphost, context, selected_namespace)
@@ -614,6 +618,6 @@ def main(stdscr):
                 # End of Action Selection loop.
             # End of Namespace Selection loop.
             return  # Exit after finishing one environment type selection.
-
+            
 if __name__ == "__main__":
     curses.wrapper(main)
