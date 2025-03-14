@@ -163,11 +163,19 @@ def select_option(stdscr, title, options, get_label, include_back=False, include
         elif search_enabled and (32 <= key <= 126):
             search_query += chr(key)
             filtered_options = [opt for opt in original_options if search_query.lower() in get_label(opt).lower()]
+            # If no options match, reset the search.
+            if not filtered_options:
+                filtered_options = original_options
+                search_query = ""
             current_row = 0
             scroll_pos = 0
-        elif search_enabled and key in [curses.KEY_BACKSPACE, 127]:
+        elif search_enabled and key in [curses.KEY_BACKSPACE, 127, 8]:
             search_query = search_query[:-1]
             filtered_options = [opt for opt in original_options if search_query.lower() in get_label(opt).lower()]
+            # If no options match, reset the search.
+            if not filtered_options:
+                filtered_options = original_options
+                search_query = ""
             current_row = 0
             scroll_pos = 0
 
@@ -416,7 +424,6 @@ def list_vwan_vpn(stdscr):
     display_text(stdscr, "vwan - vpn (s2s connections)", f"command: {az_cmd}\n\noutput:\n{output}")
 
 def main(stdscr):
-    # Initialize color pairs
     curses.start_color()
     curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
     curses.init_pair(2, curses.COLOR_YELLOW, curses.COLOR_BLACK)
@@ -424,8 +431,7 @@ def main(stdscr):
 
     environments = load_config()
     jump_hosts = load_jump_hosts()
-    
-    # Build main menu with a divider between environments and "jumphost jit"
+
     env_list = list(environments.keys())
     divider = "--------------------"
     main_menu = env_list + [divider, "jumphost jit"]
@@ -436,7 +442,8 @@ def main(stdscr):
             return
         if selected_main == "jumphost jit":
             jump_keys = list(jump_hosts.keys())
-            selected_jump = select_option(stdscr, "select jump host", jump_keys, lambda e: f"{e} ({jump_hosts[e][4]})", include_back=True)
+            selected_jump = select_option(stdscr, "select jump host", jump_keys,
+                                          lambda e: f"{e} ({jump_hosts[e][4]})", include_back=True)
             if selected_jump == "Go Back":
                 continue
             external_ip = get_external_ip()
@@ -450,14 +457,18 @@ def main(stdscr):
         # Process selected environment normally.
         while True:
             env_options = environments[selected_main]
-            selected_env_type_tuple = select_option(stdscr, "select environment type", env_options,
-                                                      lambda e: f"{e[0].lower()} ({strip_credentials(e[1]).lower()})", include_back=True)
+            selected_env_type_tuple = select_option(
+                stdscr,
+                "select environment type",
+                env_options,
+                lambda e: f"{e[0].lower()} ({strip_credentials(e[1]).lower()})",
+                include_back=True
+            )
             if selected_env_type_tuple == "Go Back":
                 break
             selected_env_type, selected_git_repo, jumphost_key, context = selected_env_type_tuple
             if jumphost_key in jump_hosts:
-                # For simplicity, use get_external_ip() as a fallback.
-                jump_ip = get_external_ip()
+                jump_ip = get_external_ip()  # For simplicity, using external ip as fallback
                 jumphost = jump_ip if jump_ip else jumphost_key
             else:
                 jumphost = jumphost_key
@@ -474,21 +485,40 @@ def main(stdscr):
                 stdscr.getch()
                 break
             while True:
-                selected_namespace = select_option(stdscr, "select a kubernetes namespace", namespaces, lambda e: e.lower(), include_back=True, search_enabled=True)
+                selected_namespace = select_option(
+                    stdscr,
+                    "select a kubernetes namespace",
+                    namespaces,
+                    lambda e: e.lower(),
+                    include_back=True,
+                    search_enabled=True
+                )
                 if selected_namespace == "Go Back":
                     break
-                # Main options menu for selected namespace: "kubernetes", "mariadb", "cassandra" in lower case.
-                selected_option = select_option(stdscr, "select an option", ["kubernetes", "mariadb", "cassandra"], lambda e: e.lower(), include_back=True)
+                selected_option = select_option(
+                    stdscr,
+                    "select an option",
+                    ["kubernetes", "mariadb", "cassandra"],
+                    lambda e: e.lower(),
+                    include_back=True
+                )
                 if selected_option == "Go Back":
                     break
                 if selected_option == "kubernetes":
                     kubernetes_actions = ["show pods", "show logs", "describe pod", "show deployments", "scale deployments"]
                     while True:
-                        action = select_option(stdscr, f"kubernetes actions for '{selected_namespace}'", kubernetes_actions, lambda e: e, include_back=True)
+                        action = select_option(
+                            stdscr,
+                            f"kubernetes actions for '{selected_namespace}'",
+                            kubernetes_actions,
+                            lambda e: e,
+                            include_back=True
+                        )
                         if action == "Go Back":
                             break
                         if not is_jumphost_available(jumphost):
-                            display_text(stdscr, "jumphost unavailable", f"the jumphost {jumphost} is not reachable on port 22.\nplease ensure ssh is available.")
+                            display_text(stdscr, "jumphost unavailable", 
+                                           f"the jumphost {jumphost} is not reachable on port 22.\nplease ensure ssh is available.")
                             continue
                         if action == "show pods":
                             cmd_executed, output = run_kubectl_get_pods(jumphost, context, selected_namespace)
@@ -501,7 +531,14 @@ def main(stdscr):
                             if not pods:
                                 display_text(stdscr, "show logs", "no pods found.")
                                 continue
-                            selected_pod = select_option(stdscr, "select a pod for logs", pods, lambda e: e.lower(), include_back=True, search_enabled=True)
+                            selected_pod = select_option(
+                                stdscr,
+                                "select a pod for logs",
+                                pods,
+                                lambda e: e.lower(),
+                                include_back=True,
+                                search_enabled=True
+                            )
                             if selected_pod == "Go Back":
                                 continue
                             ssh_cmd = f"ssh {jumphost} 'kubectl " + (f"--context {context} " if context else "") + f"-n {selected_namespace} logs {selected_pod}'"
@@ -517,7 +554,14 @@ def main(stdscr):
                             if not pods:
                                 display_text(stdscr, "describe pod", "no pods found.")
                                 continue
-                            selected_pod = select_option(stdscr, "select a pod to describe", pods, lambda e: e.lower(), include_back=True, search_enabled=True)
+                            selected_pod = select_option(
+                                stdscr,
+                                "select a pod to describe",
+                                pods,
+                                lambda e: e.lower(),
+                                include_back=True,
+                                search_enabled=True
+                            )
                             if selected_pod == "Go Back":
                                 continue
                             ssh_cmd = f"ssh {jumphost} 'kubectl " + (f"--context {context} " if context else "") + f"-n {selected_namespace} describe pod {selected_pod}'"
@@ -546,7 +590,14 @@ def main(stdscr):
                             if not deploy_names:
                                 display_text(stdscr, "scale deployments", "no deployments found.")
                                 continue
-                            selected_deploy = select_option(stdscr, "select a deployment to scale", deploy_names, lambda e: e.lower(), include_back=True, search_enabled=True)
+                            selected_deploy = select_option(
+                                stdscr,
+                                "select a deployment to scale",
+                                deploy_names,
+                                lambda e: e.lower(),
+                                include_back=True,
+                                search_enabled=True
+                            )
                             if selected_deploy == "Go Back":
                                 continue
                             replicas = get_user_input(stdscr, "enter desired number of replicas: ")
@@ -557,98 +608,99 @@ def main(stdscr):
                             except subprocess.CalledProcessError as e:
                                 scale_output = f"error scaling deployment: {e}"
                             display_text(stdscr, f"scale deployment: {selected_deploy}", f"command: {ssh_cmd_scale}\n\noutput:\n{scale_output}")
-                        elif selected_option == "mariadb":
-                            conf_path = find_application_conf(repo_dir, selected_namespace)
-                            if not conf_path:
-                                smdp_path = find_smdp_yaml(repo_dir, selected_namespace)
-                                if smdp_path:
-                                    env_dict = parse_smdp_yaml(smdp_path)
-                                    reporting = {
-                                        "host": env_dict.get("DB_HOST", "localhost"),
-                                        "port": env_dict.get("DB_PORT", "3306"),
-                                        "username": env_dict.get("DB_USER", "root"),
-                                        "password": env_dict.get("DB_PASSWD", ""),
-                                        "dbname": env_dict.get("DB_NAME", "")
-                                    }
-                                    cassandra = {
-                                        "host": env_dict.get("CASSANDRA_HOST1", "localhost"),
-                                        "port": env_dict.get("CASSANDRA_PORT", "9042"),
-                                        "keyspace": env_dict.get("CASSANDRA_KEYSPACE", ""),
-                                        "username": env_dict.get("CASSANDRA_USER", ""),
-                                        "password": env_dict.get("CASSANDRA_PASSWD", "")
-                                    }
-                                    source = "smdp.yaml"
-                                else:
-                                    reporting = {}
-                                    cassandra = {}
-                                    source = None
-                            else:
-                                source = "application.conf"
-                                try:
-                                    with open(conf_path, "r", encoding="utf-8") as f:
-                                        content = f.read()
-                                except Exception as e:
-                                    content = "error reading application.conf: " + str(e)
-                                reporting = {}
-                                cassandra = {}
-                                rep_match = re.search(r"reporting\s*\{(.*?)\}", content, re.DOTALL)
-                                if rep_match:
-                                    rep_block = rep_match.group(1)
-                                    for line in rep_block.splitlines():
-                                        line = line.strip()
-                                        if line and not line.startswith("#"):
-                                            kv = re.match(r"(\w+)\s*=\s*(\".*?\"|\S+)", line)
-                                            if kv:
-                                                key = kv.group(1)
-                                                val = kv.group(2).strip('"')
-                                                reporting[key] = val
-                                cass_match = re.search(r"cassandra\s*\{(.*?)\}", content, re.DOTALL)
-                                if cass_match:
-                                    cass_block = cass_match.group(1)
-                                    for line in cass_block.splitlines():
-                                        line = line.strip()
-                                        if line and not line.startswith("#"):
-                                            kv = re.match(r"(\w+)\s*=\s*(\".*?\"|\S+)", line)
-                                            if kv:
-                                                key = kv.group(1)
-                                                if key.lower() == "hosts":
-                                                    val = kv.group(2).strip('"')
-                                                    host = val.split(",")[0].strip() if val else "localhost"
-                                                    cassandra["host"] = host
-                                                else:
-                                                    val = kv.group(2).strip('"')
-                                                    cassandra[key] = val
-                                source = "application.conf"
-                            if not source:
-                                output = f"neither application.conf nor smdp.yaml found for namespace '{selected_namespace}'."
-                            else:
-                                mariadb_cmd = "not enough data to build mariadb command."
-                                cassandra_cmd = "not enough data to build cassandra command."
-                                if reporting:
-                                    host = reporting.get("host", "localhost")
-                                    port = reporting.get("port", "3306")
-                                    username = reporting.get("username", "root")
-                                    password = reporting.get("password", "")
-                                    dbname = reporting.get("dbname", "")
-                                    mariadb_cmd = f"mysql -h {host} -P {port} -u {username} -p{password} {dbname}"
-                                if cassandra:
-                                    host = cassandra.get("host", "localhost")
-                                    port = cassandra.get("port", "9042")
-                                    keyspace = cassandra.get("keyspace", "")
-                                    username = cassandra.get("username", "")
-                                    password = cassandra.get("password", "")
-                                    cassandra_cmd = f"cqlsh {host} {port} -u {username} -p {password} {keyspace}"
-                                output = (f"source: {source}\n\nmariadb connection command:\n{mariadb_cmd}\n\n"
-                                        f"cassandra connection command:\n{cassandra_cmd}")
-                            display_text(stdscr, "database connection commands", output)
-                        elif selected_option == "cassandra":
-                            stdscr.clear()
-                            stdscr.addstr(2, 2, "cassandra feature not implemented separately.", curses.A_BOLD)
-                            stdscr.refresh()
-                            stdscr.getch()
-                    # End of Action Selection loop.
-                # End of Namespace Selection loop.
-                return  # Exit after finishing one environment type selection.
-            
+                elif selected_option == "mariadb":
+                    conf_path = find_application_conf(repo_dir, selected_namespace)
+                    if not conf_path:
+                        smdp_path = find_smdp_yaml(repo_dir, selected_namespace)
+                        if smdp_path:
+                            env_dict = parse_smdp_yaml(smdp_path)
+                            reporting = {
+                                "host": env_dict.get("DB_HOST", "localhost"),
+                                "port": env_dict.get("DB_PORT", "3306"),
+                                "username": env_dict.get("DB_USER", "root"),
+                                "password": env_dict.get("DB_PASSWD", ""),
+                                "dbname": env_dict.get("DB_NAME", "")
+                            }
+                            cassandra = {
+                                "host": env_dict.get("CASSANDRA_HOST1", "localhost"),
+                                "port": env_dict.get("CASSANDRA_PORT", "9042"),
+                                "keyspace": env_dict.get("CASSANDRA_KEYSPACE", ""),
+                                "username": env_dict.get("CASSANDRA_USER", ""),
+                                "password": env_dict.get("CASSANDRA_PASSWD", "")
+                            }
+                            source = "smdp.yaml"
+                        else:
+                            reporting = {}
+                            cassandra = {}
+                            source = None
+                    else:
+                        source = "application.conf"
+                        try:
+                            with open(conf_path, "r", encoding="utf-8") as f:
+                                content = f.read()
+                        except Exception as e:
+                            content = "error reading application.conf: " + str(e)
+                        reporting = {}
+                        cassandra = {}
+                        rep_match = re.search(r"reporting\s*\{(.*?)\}", content, re.DOTALL)
+                        if rep_match:
+                            rep_block = rep_match.group(1)
+                            for line in rep_block.splitlines():
+                                line = line.strip()
+                                if line and not line.startswith("#"):
+                                    kv = re.match(r"(\w+)\s*=\s*(\".*?\"|\S+)", line)
+                                    if kv:
+                                        key = kv.group(1)
+                                        val = kv.group(2).strip('"')
+                                        reporting[key] = val
+                        cass_match = re.search(r"cassandra\s*\{(.*?)\}", content, re.DOTALL)
+                        if cass_match:
+                            cass_block = cass_match.group(1)
+                            for line in cass_block.splitlines():
+                                line = line.strip()
+                                if line and not line.startswith("#"):
+                                    kv = re.match(r"(\w+)\s*=\s*(\".*?\"|\S+)", line)
+                                    if kv:
+                                        key = kv.group(1)
+                                        if key.lower() == "hosts":
+                                            val = kv.group(2).strip('"')
+                                            host = val.split(",")[0].strip() if val else "localhost"
+                                            cassandra["host"] = host
+                                        else:
+                                            val = kv.group(2).strip('"')
+                                            cassandra[key] = val
+                        source = "application.conf"
+                    if not source:
+                        output = f"neither application.conf nor smdp.yaml found for namespace '{selected_namespace}'."
+                    else:
+                        mariadb_cmd = "not enough data to build mariadb command."
+                        cassandra_cmd = "not enough data to build cassandra command."
+                        if reporting:
+                            host = reporting.get("host", "localhost")
+                            port = reporting.get("port", "3306")
+                            username = reporting.get("username", "root")
+                            password = reporting.get("password", "")
+                            dbname = reporting.get("dbname", "")
+                            mariadb_cmd = f"mysql -h {host} -P {port} -u {username} -p{password} {dbname}"
+                        if cassandra:
+                            host = cassandra.get("host", "localhost")
+                            port = cassandra.get("port", "9042")
+                            keyspace = cassandra.get("keyspace", "")
+                            username = cassandra.get("username", "")
+                            password = cassandra.get("password", "")
+                            cassandra_cmd = f"cqlsh {host} {port} -u {username} -p {password} {keyspace}"
+                        output = (f"source: {source}\n\nmariadb connection command:\n{mariadb_cmd}\n\n"
+                                  f"cassandra connection command:\n{cassandra_cmd}")
+                    display_text(stdscr, "database connection commands", output)
+                elif selected_option == "cassandra":
+                    stdscr.clear()
+                    stdscr.addstr(2, 2, "cassandra feature not implemented separately.", curses.A_BOLD)
+                    stdscr.refresh()
+                    stdscr.getch()
+            # End of Namespace Selection loop.
+            break  # Go back to main menu after finishing one environment type selection.
+        # End of environment type loop.
+    # End of main menu loop.
+
 if __name__ == "__main__":
     curses.wrapper(main)
