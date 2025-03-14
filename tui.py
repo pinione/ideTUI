@@ -55,9 +55,7 @@ def load_jump_hosts():
     return jump_hosts
 
 def get_external_ip():
-    """
-    Retrieves your external IP address by calling an external service.
-    """
+    """Retrieves your external IP address using curl."""
     try:
         result = subprocess.run("curl -s v2.com7.pl/IP/", shell=True, check=True, text=True, stdout=subprocess.PIPE)
         ip = result.stdout.strip()
@@ -68,6 +66,7 @@ def get_external_ip():
 def build_jit_payload(jump_params, external_ip):
     """
     Constructs a JSON payload for initiating JIT access.
+    Port number is set to 22.
     """
     subscription, resourcegroup, vm_name, localization = jump_params
     vm_id = f"/subscriptions/{subscription}/resourceGroups/{resourcegroup}/providers/Microsoft.Compute/virtualMachines/{vm_name}"
@@ -77,7 +76,7 @@ def build_jit_payload(jump_params, external_ip):
                 "id": vm_id,
                 "ports": [
                     {
-                        "number": 3389,
+                        "number": 22,
                         "duration": "PT1H",
                         "allowedSourceAddressPrefix": external_ip
                     }
@@ -91,7 +90,7 @@ def build_jit_payload(jump_params, external_ip):
 def run_jit(jump_params, external_ip):
     """
     Uses az rest to initiate JIT access.
-    Returns the command and its output.
+    Returns the command string and its output.
     """
     subscription, resourcegroup, vm_name, localization = jump_params
     url = (f"https://management.azure.com/subscriptions/{subscription}/resourceGroups/{resourcegroup}/"
@@ -106,8 +105,12 @@ def run_jit(jump_params, external_ip):
     except subprocess.CalledProcessError as e:
         return az_cmd, f"Error executing az rest: {e}"
 
-def select_option(stdscr, title, options, get_label, include_back=False, include_exit=False, search_enabled=False):
-    """Displays a scrollable selection menu."""
+def select_option(stdscr, title, options, get_label, include_back=False, include_exit=False, search_enabled=False, skip_items=None):
+    """
+    Displays a scrollable selection menu.
+    Optional parameter skip_items is a list of items that should be visible but not selectable.
+    """
+    skip_items = skip_items or []
     curses.curs_set(0)
     stdscr.clear()
     stdscr.refresh()
@@ -147,6 +150,15 @@ def select_option(stdscr, title, options, get_label, include_back=False, include
         elif key == curses.KEY_DOWN and current_row < len(filtered_options) - 1:
             current_row += 1
         elif key in [curses.KEY_ENTER, 10, 13]:
+            # Auto-skip items in skip_items
+            if filtered_options[current_row] in skip_items:
+                # Try moving down if possible; else up.
+                if current_row < len(filtered_options) - 1:
+                    current_row += 1
+                    continue
+                elif current_row > 0:
+                    current_row -= 1
+                    continue
             return filtered_options[current_row]
         elif search_enabled and (32 <= key <= 126):
             search_query += chr(key)
@@ -179,7 +191,7 @@ def clone_or_pull_repo(env_name, env_type, git_repo):
     return env_dir
 
 def find_kubernetes_namespaces(repo_dir):
-    """Scans the repository for YAML files defining a Kubernetes Namespace."""
+    """Scans the repository for Kubernetes Namespace YAML files."""
     namespaces = set()
     for root, _, files in os.walk(repo_dir):
         for file in files:
@@ -253,7 +265,7 @@ def is_jumphost_available(jumphost):
         return False
 
 def connect_and_run_kubectl(jumphost, context, namespace, command):
-    """SSH to jumphost and run a kubectl command."""
+    """SSH to jumphost and run a kubectl command in the given namespace."""
     context_cmd = f"--context {context} " if context else ""
     kubectl_cmd = f"kubectl {context_cmd}-n {namespace} {command}"
     ssh_command = f"ssh {jumphost} '{kubectl_cmd}'"
@@ -274,7 +286,7 @@ def run_kubectl_get_pods(jumphost, context, namespace):
         return ssh_command, ""
 
 def get_user_input(stdscr, prompt):
-    """Prompts user for input and returns the entered string."""
+    """Prompts the user for input and returns the entered string."""
     curses.echo()
     stdscr.addstr(prompt)
     stdscr.refresh()
@@ -285,8 +297,8 @@ def get_user_input(stdscr, prompt):
 def display_text(stdscr, title, text):
     """
     Displays a scrollable text window with the given title and text.
-    Highlights "error" (red), "warning" (yellow), and "success" (green).
-    Supports scrolling and searching ('/' key).
+    Highlights "error" in red, "warning" in yellow, and "success" in green.
+    Supports scrolling, page navigation, and '/' for search.
     """
     pattern = re.compile(r"(error|warning|success)", re.IGNORECASE)
     lines = text.splitlines()
@@ -404,27 +416,24 @@ def list_vwan_vpn(stdscr):
     display_text(stdscr, "vWAN - VPN (S2S Connections)", f"Command: {az_cmd}\n\nOutput:\n{output}")
 
 def main(stdscr):
-    # Initialize color pairs for highlighting in logs display
+    # Initialize color pairs for highlighting
     curses.start_color()
-    curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)      # error
-    curses.init_pair(2, curses.COLOR_YELLOW, curses.COLOR_BLACK)   # warning
-    curses.init_pair(3, curses.COLOR_GREEN, curses.COLOR_BLACK)    # success
+    curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
+    curses.init_pair(2, curses.COLOR_YELLOW, curses.COLOR_BLACK)
+    curses.init_pair(3, curses.COLOR_GREEN, curses.COLOR_BLACK)
 
-    # Load configurations
     environments = load_config()
     jump_hosts = load_jump_hosts()
     
-    # Main menu: add a divider between environment names and "Jumphost JIT"
+    # Build main menu with a divider (non-selectable)
     env_list = list(environments.keys())
     divider = "--------------------"
     main_menu = env_list + [divider, "Jumphost JIT"]
 
     while True:
-        selected_main = select_option(stdscr, "Select Environment", main_menu, lambda e: e, include_exit=True)
+        selected_main = select_option(stdscr, "Select Environment", main_menu, lambda e: e, include_exit=True, skip_items=[divider])
         if selected_main == "Exit":
             return
-        if selected_main == divider:
-            continue
         if selected_main == "Jumphost JIT":
             jump_keys = list(jump_hosts.keys())
             selected_jump = select_option(stdscr, "Select Jump Host", jump_keys, lambda e: e, include_back=True)
@@ -446,9 +455,10 @@ def main(stdscr):
             if selected_env_type_tuple == "Go Back":
                 break
             selected_env_type, selected_git_repo, jumphost_key, context = selected_env_type_tuple
-            # Lookup jump host definition if available
             if jumphost_key in jump_hosts:
-                jump_ip = get_jump_host_ip(jumphost_key, jump_hosts)
+                jump_ip = get_external_ip() if not get_external_ip() is None else get_external_ip()  # fallback
+                # Use jump host definition if available
+                jump_ip = get_external_ip()  # Alternatively, call get_jump_host_ip(jumphost_key, jump_hosts)
                 jumphost = jump_ip if jump_ip else jumphost_key
             else:
                 jumphost = jumphost_key
@@ -465,20 +475,23 @@ def main(stdscr):
                 stdscr.getch()
                 break
             while True:
-                selected_namespace = select_option(stdscr, "Select a Kubernetes Namespace", namespaces, lambda e: e, include_back=True, search_enabled=True)
+                selected_namespace = select_option(stdscr, "Select a Kubernetes Namespace", namespaces,
+                                                   lambda e: e, include_back=True, search_enabled=True)
                 if selected_namespace == "Go Back":
                     break
                 while True:
-                    selected_option = select_option(stdscr, "Select an option", ["Kubernetes", "MariaDB", "Cassandra"], lambda e: e, include_back=True)
+                    selected_option = select_option(stdscr, "Select an option", ["Kubernetes", "MariaDB", "Cassandra"],
+                                                     lambda e: e, include_back=True)
                     if selected_option == "Go Back":
                         break
                     if selected_option == "Kubernetes":
                         while True:
-                            kubernetes_option = select_option(stdscr, f"Kubernetes Actions for '{selected_namespace}'", ["Show Pods", "Show Logs"], lambda e: e, include_back=True)
+                            kubernetes_option = select_option(stdscr, f"Kubernetes Actions for '{selected_namespace}'",
+                                                              ["Show Pods", "Show Logs"], lambda e: e, include_back=True)
                             if kubernetes_option == "Go Back":
                                 break
                             if not is_jumphost_available(jumphost):
-                                display_text(stdscr, "Jumphost Unavailable", f"The jumphost {jumphost} is not reachable on port 22.\nPlease ensure SSH (port 22) is available.")
+                                display_text(stdscr, "Jumphost Unavailable", f"The jumphost {jumphost} is not reachable on port 22.\nPlease ensure SSH is available.")
                                 continue
                             if kubernetes_option == "Show Pods":
                                 cmd_executed, output = run_kubectl_get_pods(jumphost, context, selected_namespace)
@@ -572,7 +585,7 @@ def main(stdscr):
                                                 cassandra[key] = val
                             source = "application.conf"
                         if not source:
-                            output = f"Neither application.conf nor smdp.yaml found under secrets for namespace '{selected_namespace}'."
+                            output = f"Neither application.conf nor smdp.yaml found for namespace '{selected_namespace}'."
                         else:
                             mariadb_cmd = "Not enough data to build MariaDB command."
                             cassandra_cmd = "Not enough data to build Cassandra command."
@@ -601,6 +614,6 @@ def main(stdscr):
                 # End of Action Selection loop.
             # End of Namespace Selection loop.
             return  # Exit after finishing one environment type selection.
-            
+
 if __name__ == "__main__":
     curses.wrapper(main)
