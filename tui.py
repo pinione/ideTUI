@@ -13,6 +13,13 @@ from collections import defaultdict
 CONFIG_FILE = "config.ini"
 BASE_DIR = os.path.expanduser("~/env_repos")  # Base directory for repositories
 
+def safe_addstr(win, y, x, string, attr=curses.A_NORMAL):
+    """Safely adds a string to a curses window, ignoring errors if text doesn't fit."""
+    try:
+        win.addstr(y, x, string, attr)
+    except curses.error:
+        pass
+
 def strip_credentials(url):
     """Strips username and password from a URL."""
     parts = urllib.parse.urlsplit(url)
@@ -132,9 +139,9 @@ def select_option(stdscr, title, options, get_label, include_back=False, include
 
     while True:
         stdscr.clear()
-        stdscr.addstr(0, 2, title, curses.A_BOLD | curses.A_UNDERLINE)
+        safe_addstr(stdscr, 0, 2, title, curses.A_BOLD | curses.A_UNDERLINE)
         if search_enabled:
-            stdscr.addstr(1, 2, f"Search: {search_query}_", curses.A_DIM)
+            safe_addstr(stdscr, 1, 2, f"Search: {search_query}_", curses.A_DIM)
         if current_row >= scroll_pos + max_visible_items:
             scroll_pos = current_row - max_visible_items + 1
         elif current_row < scroll_pos:
@@ -144,9 +151,9 @@ def select_option(stdscr, title, options, get_label, include_back=False, include
             label = get_label(option) if option not in ["Go Back", "Exit"] else option
             line_pos = idx + 3
             if scroll_pos + idx == current_row:
-                stdscr.addstr(line_pos, 2, f"> {label}", curses.A_REVERSE)
+                safe_addstr(stdscr, line_pos, 2, f"> {label}", curses.A_REVERSE)
             else:
-                stdscr.addstr(line_pos, 2, f"  {label}")
+                safe_addstr(stdscr, line_pos, 2, f"  {label}")
         stdscr.refresh()
         key = stdscr.getch()
         if key == curses.KEY_UP and current_row > 0:
@@ -295,7 +302,7 @@ def run_kubectl_get_pods(jumphost, context, namespace):
 def get_user_input(stdscr, prompt):
     """Prompts the user for input and returns the entered string."""
     curses.echo()
-    stdscr.addstr(prompt)
+    safe_addstr(stdscr, 0, 0, prompt)
     stdscr.refresh()
     s = stdscr.getstr().decode()
     curses.noecho()
@@ -324,7 +331,7 @@ def display_text(stdscr, title, text):
 
     while True:
         stdscr.clear()
-        stdscr.addstr(0, 0, title, curses.A_BOLD | curses.A_UNDERLINE)
+        safe_addstr(stdscr, 0, 0, title, curses.A_BOLD | curses.A_UNDERLINE)
         for i in range(display_height):
             if current_line + i < len(lines):
                 line = lines[current_line + i]
@@ -333,7 +340,7 @@ def display_text(stdscr, title, text):
                 for match in pattern.finditer(line):
                     start, end = match.span()
                     if start > pos:
-                        stdscr.addstr(i + 1, col, line[pos:start][:max_cols - col - 1])
+                        safe_addstr(stdscr, i + 1, col, line[pos:start][:max_cols - col - 1])
                         col += len(line[pos:start])
                     word = match.group(0).lower()
                     if word == "error":
@@ -346,12 +353,12 @@ def display_text(stdscr, title, text):
                         color = curses.A_NORMAL
                     keyword = line[start:end]
                     if col < max_cols - 1:
-                        stdscr.addstr(i + 1, col, keyword[:max_cols - col - 1], color)
+                        safe_addstr(stdscr, i + 1, col, keyword[:max_cols - col - 1], color)
                         col += len(keyword)
                     pos = end
                 if pos < len(line) and col < max_cols - 1:
-                    stdscr.addstr(i + 1, col, line[pos:][:max_cols - col - 1])
-        stdscr.addstr(max_rows - 1, 0, "Up/Down: scroll  PageUp/PageDown: page  End: jump to end  '/': search  Any other key: exit", curses.A_DIM)
+                    safe_addstr(stdscr, i + 1, col, line[pos:][:max_cols - col - 1])
+        safe_addstr(stdscr, max_rows - 1, 0, "Up/Down: scroll  PageUp/PageDown: page  End: jump to end  '/': search  Any other key: exit", curses.A_DIM)
         stdscr.refresh()
         key = stdscr.getch()
         if key == curses.KEY_UP and current_line > 0:
@@ -365,7 +372,7 @@ def display_text(stdscr, title, text):
         elif key == curses.KEY_END:
             current_line = max(0, len(lines) - display_height)
         elif key == ord('/'):
-            stdscr.addstr(max_rows - 1, 0, "Enter search query: ", curses.A_BOLD)
+            safe_addstr(stdscr, max_rows - 1, 0, "Enter search query: ", curses.A_BOLD)
             stdscr.refresh()
             query = get_user_input(stdscr, "")
             found = False
@@ -375,7 +382,7 @@ def display_text(stdscr, title, text):
                     found = True
                     break
             if not found:
-                stdscr.addstr(max_rows - 2, 0, "Not found", curses.A_BOLD)
+                safe_addstr(stdscr, max_rows - 2, 0, "Not found", curses.A_BOLD)
                 stdscr.refresh()
                 curses.napms(1000)
         else:
@@ -479,13 +486,13 @@ def main(stdscr):
                 jumphost = jumphost_key
 
             stdscr.clear()
-            stdscr.addstr(2, 2, "cloning or pulling repository...", curses.A_BOLD)
+            safe_addstr(stdscr, 2, 2, "cloning or pulling repository...", curses.A_BOLD)
             stdscr.refresh()
             repo_dir = clone_or_pull_repo(selected_main, selected_env_type, selected_git_repo)
             namespaces = find_kubernetes_namespaces(repo_dir)
             if not namespaces:
                 stdscr.clear()
-                stdscr.addstr(2, 2, "no kubernetes namespaces found in repo.", curses.A_BOLD)
+                safe_addstr(stdscr, 2, 2, "no kubernetes namespaces found in repo.", curses.A_BOLD)
                 stdscr.refresh()
                 stdscr.getch()
                 break
@@ -699,7 +706,7 @@ def main(stdscr):
                     display_text(stdscr, "database connection commands", output)
                 elif selected_option == "cassandra":
                     stdscr.clear()
-                    stdscr.addstr(2, 2, "cassandra feature not implemented separately.", curses.A_BOLD)
+                    safe_addstr(stdscr, 2, 2, "cassandra feature not implemented separately.", curses.A_BOLD)
                     stdscr.refresh()
                     stdscr.getch()
             # End of Namespace Selection loop.
