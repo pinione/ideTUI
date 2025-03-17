@@ -310,12 +310,9 @@ def display_text(stdscr, title, text):
     This version wraps each line (using textwrap) so that long output (e.g. az rest output)
     fits the screen width.
     """
-    import textwrap
     pattern = re.compile(r"(error|warning|success)", re.IGNORECASE)
-    # Split the raw text into lines and wrap each line based on the screen width.
     raw_lines = text.splitlines()
     max_rows, max_cols = stdscr.getmaxyx()
-    # Wrap lines with a little padding (max_cols - 2)
     lines = []
     for line in raw_lines:
         wrapped = textwrap.wrap(line, width=max_cols - 2)
@@ -435,6 +432,20 @@ def list_vwan_vpn(stdscr):
         output = f"Error executing az command: {e}"
     display_text(stdscr, "vwan - vpn (s2s connections)", f"command: {az_cmd}\n\noutput:\n{output}")
 
+def az_login(stdscr):
+    """
+    Suspends curses mode and runs 'az login --use-device-code' interactively,
+    allowing the user to use their keyboard for login.
+    """
+    curses.endwin()  # suspend curses so the terminal behaves normally
+    try:
+        subprocess.run("az login --use-device-code", shell=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error during az login: {e}")
+    input("Press Enter to return to the menu...")
+    curses.reset_prog_mode()  # restore curses mode
+    stdscr.clear()
+
 def main(stdscr):
     curses.start_color()
     curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
@@ -446,13 +457,14 @@ def main(stdscr):
 
     env_list = list(environments.keys())
     divider = "--------------------"
-    main_menu = env_list + [divider, "jumphost jit"]
+    # Add both "jumphost jit" and the new "az login" option.
+    main_menu = env_list + [divider, "jumphost jit", "az login"]
 
     while True:
         selected_main = select_option(stdscr, "select environment", main_menu, lambda e: e, include_exit=True, skip_items=[divider])
         if selected_main == "Exit":
             return
-        if selected_main == "jumphost jit":
+        elif selected_main == "jumphost jit":
             jump_keys = list(jump_hosts.keys())
             selected_jump = select_option(stdscr, "select jump host", jump_keys,
                                           lambda e: f"{e} ({jump_hosts[e][4]})", include_back=True)
@@ -464,6 +476,9 @@ def main(stdscr):
                 continue
             az_cmd, output = run_jit(jump_hosts[selected_jump], external_ip)
             display_text(stdscr, f"jit for jump host '{selected_jump}'", f"command: {az_cmd}\n\noutput:\n{output}")
+            continue
+        elif selected_main == "az login":
+            az_login(stdscr)
             continue
 
         # Process selected environment normally.
