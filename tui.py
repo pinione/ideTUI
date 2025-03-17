@@ -307,8 +307,7 @@ def display_text(stdscr, title, text):
     Highlights "error" in red, "warning" in yellow, and "success" in green.
     Supports scrolling, page navigation, and '/' for search.
     
-    This version wraps each line (using textwrap) so that long output (e.g. az rest output)
-    fits the screen width.
+    This version wraps each line (using textwrap) so that long output fits the screen width.
     """
     pattern = re.compile(r"(error|warning|success)", re.IGNORECASE)
     raw_lines = text.splitlines()
@@ -382,42 +381,34 @@ def display_text(stdscr, title, text):
         else:
             break
 
-def parse_application_conf(conf_path):
+def az_login(stdscr):
     """
-    Opens application.conf and extracts configuration for reporting and cassandra.
-    Returns two dictionaries.
+    Suspends curses mode and runs 'az login' interactively using device code,
+    with the specified scope.
     """
-    reporting = {}
-    cassandra = {}
+    curses.endwin()  # suspend curses so the terminal behaves normally
     try:
-        with open(conf_path, "r", encoding="utf-8") as f:
-            content = f.read()
-        rep_match = re.search(r"reporting\s*\{(.*?)\}", content, re.DOTALL)
-        if rep_match:
-            rep_block = rep_match.group(1)
-            for line in rep_block.splitlines():
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    kv = re.match(r"(\w+)\s*=\s*(\".*?\"|\S+)", line)
-                    if kv:
-                        key = kv.group(1)
-                        val = kv.group(2).strip('"')
-                        reporting[key] = val
-        cass_match = re.search(r"cassandra\s*\{(.*?)\}", content, re.DOTALL)
-        if cass_match:
-            cass_block = cass_match.group(1)
-            for line in cass_block.splitlines():
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    kv = re.match(r"(\w+)\s*=\s*(\".*?\"|\S+)", line)
-                    if kv:
-                        key = kv.group(1)
-                        val = kv.group(2).strip('"')
-                        cassandra[key] = val
+        # Updated to include the scope as requested.
+        subprocess.run("az login --use-device-code --scope https://managment.core.windows.net//.default", shell=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error during az login: {e}")
+    input("Press Enter to return to the menu...")
+    curses.reset_prog_mode()  # restore curses mode
+    stdscr.clear()
+
+def az_account_list(stdscr):
+    """
+    Runs 'az account list', pretty prints the JSON output,
+    and displays it in the curses UI.
+    """
+    try:
+        result = subprocess.run("az account list --output json", shell=True, check=True, text=True, stdout=subprocess.PIPE)
+        accounts_json = result.stdout.strip()
+        accounts_data = json.loads(accounts_json)
+        pretty_accounts = json.dumps(accounts_data, indent=4)
     except Exception as e:
-        reporting = {}
-        cassandra = {}
-    return reporting, cassandra
+        pretty_accounts = f"Error executing az account list: {e}"
+    display_text(stdscr, "Azure Account List", pretty_accounts)
 
 def list_vwan_vpn(stdscr):
     """
@@ -432,20 +423,6 @@ def list_vwan_vpn(stdscr):
         output = f"Error executing az command: {e}"
     display_text(stdscr, "vwan - vpn (s2s connections)", f"command: {az_cmd}\n\noutput:\n{output}")
 
-def az_login(stdscr):
-    """
-    Suspends curses mode and runs 'az login --use-device-code' interactively,
-    allowing the user to use their keyboard for login.
-    """
-    curses.endwin()  # suspend curses so the terminal behaves normally
-    try:
-        subprocess.run("az login --use-device-code", shell=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Error during az login: {e}")
-    input("Press Enter to return to the menu...")
-    curses.reset_prog_mode()  # restore curses mode
-    stdscr.clear()
-
 def main(stdscr):
     curses.start_color()
     curses.init_pair(1, curses.COLOR_RED, curses.COLOR_BLACK)
@@ -457,8 +434,8 @@ def main(stdscr):
 
     env_list = list(environments.keys())
     divider = "--------------------"
-    # Add both "jumphost jit" and the new "az login" option.
-    main_menu = env_list + [divider, "jumphost jit", "az login"]
+    # Updated main menu to include "jumphost jit", "az login", and "az account list"
+    main_menu = env_list + [divider, "jumphost jit", "az login", "az account list"]
 
     while True:
         selected_main = select_option(stdscr, "select environment", main_menu, lambda e: e, include_exit=True, skip_items=[divider])
@@ -479,6 +456,9 @@ def main(stdscr):
             continue
         elif selected_main == "az login":
             az_login(stdscr)
+            continue
+        elif selected_main == "az account list":
+            az_account_list(stdscr)
             continue
 
         # Process selected environment normally.
