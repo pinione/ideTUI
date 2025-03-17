@@ -383,13 +383,11 @@ def display_text(stdscr, title, text):
 
 def az_login(stdscr):
     """
-    Suspends curses mode and runs 'az login' interactively using device code,
-    with the specified scope.
+    Suspends curses mode and runs 'az login --use-device-code' interactively.
     """
     curses.endwin()  # suspend curses so the terminal behaves normally
     try:
-        # Updated to include the scope as requested.
-        subprocess.run("az login --use-device-code --scope https://managment.core.windows.net//.default", shell=True)
+        subprocess.run("az login --use-device-code", shell=True)
     except subprocess.CalledProcessError as e:
         print(f"Error during az login: {e}")
     input("Press Enter to return to the menu...")
@@ -434,7 +432,7 @@ def main(stdscr):
 
     env_list = list(environments.keys())
     divider = "--------------------"
-    # Updated main menu to include "jumphost jit", "az login", and "az account list"
+    # Main menu now includes "jumphost jit", "az login", and "az account list"
     main_menu = env_list + [divider, "jumphost jit", "az login", "az account list"]
 
     while True:
